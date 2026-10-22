@@ -1,0 +1,7 @@
+node_modules/
+package-lock.json
+coverage/
+
+# File baseline repository dari #13, format mengikuti penulisnya
+.github/
+CONTRIBUTING.md
