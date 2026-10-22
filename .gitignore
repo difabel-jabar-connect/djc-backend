@@ -1,0 +1,21 @@
+# Dependency
+node_modules/
+
+# Environment dan secret
+.env
+.env.*
+!.env.example
+
+# Build dan coverage
+dist/
+build/
+coverage/
+
+# Log
+*.log
+npm-debug.log*
+
+# Editor dan sistem operasi
+.DS_Store
+.idea/
+.vscode/

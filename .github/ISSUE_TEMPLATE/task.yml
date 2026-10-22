@@ -1,0 +1,68 @@
+name: Task
+description: Pekerjaan produk, desain, teknis, atau manajemen proyek
+title: "[AREA] "
+labels:
+  - task
+projects:
+  - deonaja/2
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Backend
+        - Full-stack
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Tujuan atau outcome
+      description: Jelaskan hasil yang harus tersedia, bukan hanya aktivitas yang dilakukan.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Tuliskan checklist yang dapat diperiksa saat review.
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Size
+      description: S sekitar 2 jam, M sekitar 3-4 jam, L sekitar 5-6 jam.
+      options:
+        - S
+        - M
+        - L
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependency atau keputusan yang dibutuhkan
+      placeholder: Tidak ada, atau tautkan issue/keputusan terkait.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Bukti atau artifact
+      description: Diisi atau diperbarui sebelum issue masuk Review.
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Pemeriksaan Ready
+      options:
+        - label: Outcome dan acceptance criteria sudah dapat dipahami anggota lain.
+          required: true
