@@ -1,15 +1,147 @@
 # djc-backend
 
-REST API Difabel Jabar Connect, marketplace jasa berbasis lokasi bagi alumni penyandang disabilitas di Jawa Barat.
+REST API Difabel Jabar Connect, marketplace jasa berbasis lokasi bagi alumni penyandang disabilitas di Jawa Barat. Node.js + Express dengan database MySQL 8, di-deploy ke Railway, sesuai keputusan stack Week 1 (`docs/project-management/meeting-notes/2026-10-04-week-1-decisions.md` dan `docs/technical/stack-comparison.md` di repository dokumentasi [deonaja/difabel-jabar-connect](https://github.com/deonaja/difabel-jabar-connect)).
 
-## Stack
-
-Node.js + Express dengan MySQL 8, di-deploy ke Railway. Keputusan stack tercatat di `docs/technical/stack-comparison.md` pada repository dokumentasi.
-
-## Status
-
-Repository disiapkan melalui deonaja/difabel-jabar-connect#13. Fondasi Express/MySQL, API contract, dan panduan setup lokal ditambahkan melalui deonaja/difabel-jabar-connect#15.
-
-## Kontribusi
+Status: repository disiapkan melalui deonaja/difabel-jabar-connect#13; fondasi Express/MySQL dan API contract ditambahkan melalui deonaja/difabel-jabar-connect#15. Yang sudah ada baru `GET /api/v1/health`; endpoint fitur mengikuti [`docs/api-contract.md`](docs/api-contract.md).
 
 Baca [CONTRIBUTING.md](CONTRIBUTING.md) sebelum membuat branch atau pull request.
+
+## Kebutuhan
+
+- Node.js 20 atau lebih baru (`node -v`)
+- **MySQL 8** (disarankan 8.4 LTS). Railway juga memakai MySQL 8, jadi lokal sebaiknya sama.
+
+> Jangan pakai MySQL bawaan XAMPP. XAMPP berisi **MariaDB**, bukan MySQL 8; beberapa fitur yang dipakai model data (CHECK constraint, JSON, foreign key komposit) perilakunya bisa berbeda dengan server Railway.
+
+### Cara pasang MySQL 8 di Windows (pilih satu)
+
+1. **MySQL Installer resmi**: unduh "MySQL Community Server 8.4 LTS" dari <https://dev.mysql.com/downloads/mysql/>, pilih setup "Server only", catat password `root`.
+2. **Docker Desktop** (jika sudah terpasang):
+
+   ```bash
+   docker run -d --name djc-mysql -p 3306:3306 \
+     -e MYSQL_ROOT_PASSWORD=rootpass \
+     -e MYSQL_DATABASE=difabel_jabar_connect \
+     -e MYSQL_USER=djc -e MYSQL_PASSWORD=djcpass \
+     mysql:8.4
+   ```
+
+### Buat database dan user (jika pakai MySQL Installer)
+
+Buka MySQL Shell / MySQL Workbench sebagai `root`, lalu:
+
+```sql
+CREATE DATABASE difabel_jabar_connect CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'djc'@'localhost' IDENTIFIED BY 'djcpass';
+GRANT ALL PRIVILEGES ON difabel_jabar_connect.* TO 'djc'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+## Setup lokal
+
+```bash
+npm install
+cp .env.example .env      # Windows CMD: copy .env.example .env
+```
+
+Isi `.env` sesuai MySQL kamu (`DB_USER`, `DB_PASSWORD`, `DB_NAME`).
+
+Cek koneksi database:
+
+```bash
+npm run db:check
+# Koneksi MySQL berhasil (djc@127.0.0.1:3306/difabel_jabar_connect), versi server 8.4.x.
+```
+
+Jalankan API:
+
+```bash
+npm run dev               # auto-restart saat file berubah
+```
+
+Buka <http://localhost:5000/api/v1/health>:
+
+```json
+{ "data": { "status": "ok", "database": "up", "timestamp": "..." } }
+```
+
+Jika MySQL mati, endpoint yang sama mengembalikan HTTP 503 dengan `"database": "down"`.
+
+## Perintah
+
+| Perintah                                    | Fungsi                                               |
+| ------------------------------------------- | ---------------------------------------------------- |
+| `npm run dev`                               | Menjalankan API dengan auto-restart (`node --watch`) |
+| `npm start`                                 | Menjalankan API (production)                         |
+| `npm run db:check`                          | Mengecek koneksi MySQL dari `.env`                   |
+| `npm run db:migrate`                        | Menjalankan migrasi yang belum jalan (knex)          |
+| `npm run db:rollback`                       | Membatalkan batch migrasi terakhir                   |
+| `npm run db:fresh`                          | Rollback semua lalu migrasi ulang dari nol           |
+| `npm run db:make-migration -- nama_migrasi` | Membuat file migrasi baru di `db/migrations/`        |
+| `npm run db:seed`                           | Mengisi data dummy dari `db/seeds/`                  |
+| `npm test`                                  | Menjalankan test (Node test runner + Supertest)      |
+| `npm run lint` / `npm run lint:fix`         | ESLint                                               |
+| `npm run format` / `npm run format:check`   | Prettier                                             |
+
+Tes koneksi ke MySQL sungguhan ikut dijalankan jika `DB_TEST=1`:
+
+```bash
+DB_TEST=1 npm test            # PowerShell: $env:DB_TEST=1; npm test
+```
+
+## Package yang dipakai
+
+| Package              | Untuk apa                                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `express`            | Web framework REST API                                                                                    |
+| `mysql2`             | Driver MySQL 8                                                                                            |
+| `knex`               | Migrasi dan seeder (`db/migrations`, `db/seeds`), sesuai kewajiban migration + seeder di keputusan Week 1 |
+| `dotenv`             | Membaca `.env`                                                                                            |
+| `cors`, `helmet`     | Izin origin frontend dan header keamanan dasar                                                            |
+| `cookie-parser`      | Membaca cookie JWT `djc_token` (API contract 1.4)                                                         |
+| `jsonwebtoken`       | Membuat dan memverifikasi JWT                                                                             |
+| `bcryptjs`           | Hash password (NFR-SEC-01, salt rounds 10); JS murni, tidak perlu build tools di Windows                  |
+| `zod`                | Validasi body dan query request                                                                           |
+| `express-rate-limit` | Membatasi percobaan login berulang                                                                        |
+
+Dev: `eslint`, `prettier`, `supertest` (test HTTP), dan test runner bawaan Node (`node --test`).
+
+## Struktur folder
+
+```
+djc-backend/
+├── docs/api-contract.md       # API contract Draft v0.1
+├── src/
+│   ├── app.js                 # Membuat app Express (dipakai server dan test)
+│   ├── server.js              # Menjalankan app.listen
+│   ├── config/
+│   │   ├── env.js             # Membaca .env
+│   │   └── db.js              # Pool koneksi mysql2 + ping
+│   ├── routes/
+│   │   ├── index.js           # Router /api/v1
+│   │   └── health.js          # GET /api/v1/health
+│   ├── middlewares/
+│   │   ├── notFound.js        # 404 berformat standar
+│   │   └── errorHandler.js    # Error berformat standar
+│   ├── utils/response.js      # sendSuccess, ApiError
+│   └── scripts/check-db.js    # npm run db:check
+├── db/
+│   ├── migrations/            # File migrasi knex
+│   └── seeds/                 # File seeder knex
+├── knexfile.js                # Konfigurasi knex, membaca .env
+├── tests/                     # *.test.js
+├── .env.example
+├── eslint.config.js
+└── .prettierrc.json
+```
+
+Fitur baru ditambahkan sebagai router di `src/routes/` dan didaftarkan di `src/routes/index.js`.
+
+## Format respons
+
+Sukses: `{ "data": ..., "meta": { ...pagination } }`
+Error: `{ "error": { "code": "VALIDATION_ERROR", "message": "...", "details": [...] } }`
+
+Untuk melempar error dari route: `throw new ApiError(404, 'NOT_FOUND', 'Provider tidak ditemukan.')`. Express 5 meneruskan error dari fungsi `async` ke error handler secara otomatis.
+
+Daftar kode error lengkap ada di [`docs/api-contract.md`](docs/api-contract.md) bagian 1.3.
