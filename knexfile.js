@@ -11,6 +11,12 @@ module.exports = {
     database: env.db.database,
     timezone: 'Z',
   },
+  pool: {
+    // Sesi UTC, sama seperti pool API di src/config/db.js.
+    afterCreate(connection, done) {
+      connection.query("SET time_zone = '+00:00'", (error) => done(error, connection));
+    },
+  },
   migrations: {
     directory: './db/migrations',
     tableName: 'knex_migrations',
