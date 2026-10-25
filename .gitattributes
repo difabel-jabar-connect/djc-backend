@@ -1,0 +1,3 @@
+# Semua file teks disimpan dan di-checkout dengan akhir baris LF, termasuk di Windows,
+# supaya `npm run format:check` (Prettier endOfLine lf) tidak gagal setelah clone.
+* text=auto eol=lf
