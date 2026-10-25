@@ -18,6 +18,11 @@ function getPool() {
       dateStrings: false,
       connectTimeout: 5000,
     });
+    // Sesi MySQL juga UTC supaya DEFAULT CURRENT_TIMESTAMP(6) tidak ikut zona waktu
+    // server (MySQL di laptop Windows biasanya WIB).
+    pool.on('connection', (connection) => {
+      connection.query("SET time_zone = '+00:00'");
+    });
   }
   return pool;
 }

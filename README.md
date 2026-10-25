@@ -83,11 +83,34 @@ Jika MySQL mati, endpoint yang sama mengembalikan HTTP 503 dengan `"database": "
 | `npm run lint` / `npm run lint:fix`         | ESLint                                               |
 | `npm run format` / `npm run format:check`   | Prettier                                             |
 
-Tes koneksi ke MySQL sungguhan ikut dijalankan jika `DB_TEST=1`:
+Tes yang memakai MySQL sungguhan (koneksi, skema, seeder) ikut dijalankan jika `DB_TEST=1`. Tes seeder mengisi ulang database dengan data dummy.
 
 ```bash
 DB_TEST=1 npm test            # PowerShell: $env:DB_TEST=1; npm test
 ```
+
+## Database: migrasi dan data dummy
+
+Skema 12 tabel mengikuti `docs/technical/data-model.md` di repository dokumentasi (SP1-02): UUID `CHAR(36)`, waktu `DATETIME(6)` UTC, uang `BIGINT` rupiah, dan semua CHECK constraint. Satu file migrasi per tabel di `db/migrations/`.
+
+```bash
+npm run db:migrate            # buat semua tabel
+npm run db:seed               # HAPUS semua data lalu isi data dummy
+npm run db:fresh              # drop semua tabel lalu migrasi ulang dari nol
+```
+
+Data dummy (SP1-09) berisi 10 user, 6 provider di 6 kota, 8 kategori, 8 layanan, 7 booking (satu per status), dan 2 review. ID-nya tetap sama setiap seed ulang, dan tanggal booking dihitung dari hari ini.
+
+Semua akun demo memakai password `Demo12345` (ganti lewat `SEED_PASSWORD` di `.env`):
+
+| Peran                       | Email                                                              |
+| --------------------------- | ------------------------------------------------------------------ |
+| Admin                       | `admin@djc.test`                                                   |
+| Customer                    | `budi@djc.test`, `ani@djc.test`, `citra@djc.test`                  |
+| Provider verified           | `deni@djc.test`, `siti@djc.test`, `asep@djc.test`, `rina@djc.test` |
+| Provider pending / rejected | `yusuf@djc.test` / `dewi@djc.test`                                 |
+
+Di `NODE_ENV=production` seeder menolak jalan kecuali `SEED_FORCE=1`, supaya data asli tidak terhapus tanpa sengaja.
 
 ## Package yang dipakai
 
@@ -126,8 +149,8 @@ djc-backend/
 │   ├── utils/response.js      # sendSuccess, ApiError
 │   └── scripts/check-db.js    # npm run db:check
 ├── db/
-│   ├── migrations/            # File migrasi knex
-│   └── seeds/                 # File seeder knex
+│   ├── migrations/            # Migrasi knex, satu file per tabel
+│   └── seeds/                 # Seeder data dummy
 ├── knexfile.js                # Konfigurasi knex, membaca .env
 ├── tests/                     # *.test.js
 ├── .env.example
