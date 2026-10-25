@@ -46,6 +46,8 @@ cp .env.example .env      # Windows CMD: copy .env.example .env
 
 Isi `.env` sesuai MySQL kamu (`DB_USER`, `DB_PASSWORD`, `DB_NAME`).
 
+Repository ini memakai akhir baris LF di semua OS (`.gitattributes`). Jika kamu meng-clone sebelum file itu ada dan `npm run format:check` gagal di Windows, pastikan tidak ada perubahan yang belum di-commit, lalu jalankan sekali `git rm -r --cached . -q` dan `git reset --hard` untuk checkout ulang dengan LF (file `.env` tidak ikut terhapus).
+
 Cek koneksi database:
 
 ```bash
