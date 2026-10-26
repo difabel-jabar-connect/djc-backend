@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan pada fondasi backend hanya `GET /api/v1/health`.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health` dan auth A1–A6.
 
 ---
 
@@ -55,20 +55,23 @@ Error:
 
 ### 1.3 Kode error umum
 
-| HTTP | `code`                | Kapan                                                         |
-| ---- | --------------------- | ------------------------------------------------------------- |
-| 400  | `VALIDATION_ERROR`    | Field wajib kosong, format salah, nilai di luar aturan        |
-| 400  | `INVALID_JSON`        | Body bukan JSON valid                                         |
-| 401  | `UNAUTHENTICATED`     | Belum login atau token tidak valid/kedaluwarsa                |
-| 401  | `INVALID_CREDENTIALS` | Email atau password salah                                     |
-| 403  | `FORBIDDEN`           | Peran tidak sesuai atau bukan pemilik data                    |
-| 403  | `ACCOUNT_SUSPENDED`   | Akun `suspended` mencoba aksi tulis                           |
-| 404  | `NOT_FOUND`           | Data tidak ada, atau ada tetapi tidak boleh dilihat pemanggil |
-| 409  | `CONFLICT`            | Data bentrok, mis. email sudah terdaftar, review sudah ada    |
-| 409  | `INVALID_TRANSITION`  | Transisi status booking tidak diizinkan dari status sekarang  |
-| 413  | `PAYLOAD_TOO_LARGE`   | Body terlalu besar                                            |
-| 500  | `INTERNAL_ERROR`      | Kesalahan server                                              |
-| 503  | –                     | Health check saat database tidak terhubung                    |
+| HTTP | `code`                | Kapan                                                          |
+| ---- | --------------------- | -------------------------------------------------------------- |
+| 400  | `VALIDATION_ERROR`    | Field wajib kosong, format salah, nilai di luar aturan         |
+| 400  | `INVALID_JSON`        | Body bukan JSON valid                                          |
+| 401  | `UNAUTHENTICATED`     | Belum login atau token tidak valid/kedaluwarsa                 |
+| 401  | `INVALID_CREDENTIALS` | Email atau password salah                                      |
+| 403  | `FORBIDDEN`           | Peran tidak sesuai atau bukan pemilik data                     |
+| 403  | `ACCOUNT_SUSPENDED`   | Akun `suspended` mencoba aksi tulis                            |
+| 404  | `NOT_FOUND`           | Data tidak ada, atau ada tetapi tidak boleh dilihat pemanggil  |
+| 409  | `CONFLICT`            | Data bentrok, mis. email sudah terdaftar, review sudah ada     |
+| 409  | `INVALID_TRANSITION`  | Transisi status booking tidak diizinkan dari status sekarang   |
+| 410  | `TOKEN_EXPIRED`       | Tautan reset kata sandi rusak, kedaluwarsa, atau sudah dipakai |
+| 413  | `PAYLOAD_TOO_LARGE`   | Body terlalu besar                                             |
+| 429  | `TOO_MANY_REQUESTS`   | Terlalu banyak percobaan dari IP yang sama (lihat A2, A5)      |
+| 500  | `INTERNAL_ERROR`      | Kesalahan server                                               |
+| 503  | `SERVICE_UNAVAILABLE` | Layanan pendukung belum tersedia, mis. email reset (A5)        |
+| 503  | –                     | Health check saat database tidak terhubung                     |
 
 Untuk data yang tidak boleh dilihat (mis. booking milik orang lain), API mengembalikan **404**, bukan 403, agar keberadaan data tidak bocor.
 
@@ -76,7 +79,8 @@ Untuk data yang tidak boleh dilihat (mis. booking milik orang lain), API mengemb
 
 STK-04 di `stack-comparison.md` menyerahkan kontrak autentikasi ke issue fondasi backend ini. Pemakaian JWT sudah disepakati tim (review PM di deonaja/difabel-jabar-connect#11). Usulan detailnya:
 
-- Login mengembalikan JWT di **cookie `HttpOnly`** bernama `djc_token` (`SameSite=Lax`, `Secure` di production, umur 7 hari). Frontend memanggil API dengan `credentials: 'include'`.
+- Login mengembalikan JWT di **cookie `HttpOnly`** bernama `djc_token` (`SameSite=Lax`, `Secure` di production). Frontend memanggil API dengan `credentials: 'include'`.
+- Umur sesi 24 jam (NFR-SEC-02, `JWT_EXPIRES_IN=1d`) dan cookie-nya cookie sesi, hilang saat browser ditutup. Jika login dengan `remember: true` ("Ingat saya"), token berlaku 7 hari (`JWT_REMEMBER_EXPIRES_IN=7d`) dan cookie disimpan sampai waktu yang sama.
 - Header `Authorization: Bearer <token>` tetap diterima untuk Postman dan testing.
 - Payload JWT: `sub` (user id), `role`, `exp`. Status akun **dicek ulang ke database** pada setiap aksi tulis, sehingga suspend berlaku langsung.
 - Password di-hash dengan bcrypt, salt rounds 10 (NFR-SEC-01).
@@ -110,10 +114,12 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | #   | Method | Path                     | Peran                | Flow             | Status implementasi |
 | --- | ------ | ------------------------ | -------------------- | ---------------- | ------------------- |
 | H1  | GET    | `/health`                | Publik               | Monitoring       | Sudah ada           |
-| A1  | POST   | `/auth/register`         | Publik               | Akun             | Proposed            |
-| A2  | POST   | `/auth/login`            | Publik               | Akun             | Proposed            |
-| A3  | POST   | `/auth/logout`           | Login                | Akun             | Proposed            |
-| A4  | GET    | `/auth/me`               | Login                | Akun             | Proposed            |
+| A1  | POST   | `/auth/register`         | Publik               | Akun             | Sudah ada           |
+| A2  | POST   | `/auth/login`            | Publik               | Akun             | Sudah ada           |
+| A3  | POST   | `/auth/logout`           | Login                | Akun             | Sudah ada           |
+| A4  | GET    | `/auth/me`               | Login                | Akun             | Sudah ada           |
+| A5  | POST   | `/auth/password/forgot`  | Publik               | Akun             | Sudah ada           |
+| A6  | POST   | `/auth/password/reset`   | Publik               | Akun             | Sudah ada           |
 | C1  | GET    | `/categories`            | Publik               | Search           | Proposed            |
 | P1  | GET    | `/providers`             | Publik               | Search           | Proposed            |
 | P2  | GET    | `/providers/map`         | Publik               | Location         | Proposed            |
@@ -175,10 +181,11 @@ Request body:
 | --------------- | ------------------------ | ------------- | ------------------------------------------ |
 | `role`          | `customer` \| `provider` | ya            | Admin tidak bisa daftar lewat endpoint ini |
 | `full_name`     | string                   | ya            | 2–100 karakter                             |
-| `email`         | string                   | ya            | Format email, unik                         |
-| `phone`         | string                   | ya            | Format `+62…`, maks 20 karakter            |
-| `password`      | string                   | ya            | Minimal 8 karakter                         |
-| `alumni_reg_no` | string                   | jika provider | Nomor alumni UPTD PPSGHD                   |
+| `email`         | string                   | ya            | Format email, unik, disimpan huruf kecil   |
+| `phone`         | string                   | ya            | Format `+62` diikuti 8–13 digit            |
+| `password`      | string                   | ya            | 8–72 karakter (batas bcrypt)               |
+| `alumni_reg_no` | string                   | jika provider | Nomor alumni UPTD PPSGHD, maks 50 karakter |
+| `city`          | string                   | jika provider | Kota/kabupaten domisili, maks 50 karakter  |
 
 ```json
 {
@@ -189,6 +196,8 @@ Request body:
   "password": "rahasia123"
 }
 ```
+
+Field lain diabaikan (mis. `category` dari form mitra; layanan dan kategori diatur di profil provider). `city` wajib karena `provider_profiles.city` NOT NULL.
 
 Registrasi tidak langsung login; frontend mengarahkan ke `/login` dengan pesan sukses (US-CUST-01).
 
@@ -202,6 +211,7 @@ Sukses `201`:
       "role": "customer",
       "full_name": "Budi Santoso",
       "email": "budi@example.com",
+      "phone": "+6281234567890",
       "status": "active"
     }
   }
@@ -223,26 +233,38 @@ Error: `400 VALIDATION_ERROR`, `409 CONFLICT` ("Email ini sudah terdaftar. Silak
 | Requirement | FR-CUST-01, FR-PROV-01, SP1-03       |
 | Layar       | `/login`, lalu redirect sesuai peran |
 
-Request: `{ "email": "budi@example.com", "password": "rahasia123" }`
+Request: `{ "email": "budi@example.com", "password": "rahasia123", "remember": true }`
+
+`remember` opsional (boolean, default `false`), lihat umur sesi di 1.4.
 
 Sukses `200` + `Set-Cookie: djc_token=…; HttpOnly`:
 
 ```json
 {
   "data": {
-    "user": { "id": "0b6c…", "role": "customer", "full_name": "Budi Santoso", "status": "active" },
-    "token": "eyJhbGciOi…"
+    "user": {
+      "id": "0b6c…",
+      "role": "customer",
+      "full_name": "Budi Santoso",
+      "email": "budi@example.com",
+      "phone": "+6281234567890",
+      "status": "active"
+    },
+    "token": "eyJhbGciOi…",
+    "expires_at": "2026-10-27T02:00:00.000Z"
   }
 }
 ```
 
-`token` di body hanya untuk klien yang memakai header Bearer; frontend cukup memakai cookie.
+`token` di body hanya untuk klien yang memakai header Bearer; frontend cukup memakai cookie. Akun `suspended` tetap bisa login (1.5), `user.status` memberi tahu frontend untuk menampilkan mode baca saja.
 
-Error: `400 VALIDATION_ERROR`, `401 INVALID_CREDENTIALS` ("Email atau password salah.").
+Error: `400 VALIDATION_ERROR`, `401 INVALID_CREDENTIALS` ("Email atau kata sandi salah.", sama untuk email tidak terdaftar dan kata sandi salah), `429 TOO_MANY_REQUESTS` setelah 10 login gagal dari IP yang sama dalam 15 menit (login berhasil tidak dihitung).
 
 ### A3 `POST /auth/logout`
 
-Peran: Login. Menghapus cookie sesi. Sukses `200`: `{ "data": { "logged_out": true } }`. Error: `401 UNAUTHENTICATED`.
+Peran: Login, termasuk akun `suspended`. Menghapus cookie sesi. Sukses `200`: `{ "data": { "logged_out": true } }`. Error: `401 UNAUTHENTICATED`.
+
+JWT tidak disimpan di server, jadi token yang sudah disalin klien Bearer tetap berlaku sampai `expires_at`. Daftar blokir token belum dibuat; suspend tetap berlaku lewat pengecekan status di setiap aksi tulis (1.4).
 
 ### A4 `GET /auth/me`
 
@@ -270,7 +292,35 @@ Sukses `200`:
 }
 ```
 
-`provider_profile` hanya ada untuk provider. Error: `401 UNAUTHENTICATED`.
+`provider_profile` hanya ada untuk provider (`null` jika profilnya belum ada). Error: `401 UNAUTHENTICATED`, juga jika akun pemilik token sudah dihapus (cookie ikut dihapus).
+
+### A5 `POST /auth/password/forgot`
+
+|        |                                             |
+| ------ | ------------------------------------------- |
+| Tujuan | Meminta tautan reset kata sandi lewat email |
+| Peran  | Publik                                      |
+| Layar  | `/lupa-kata-sandi`, lalu layar "Cek email"  |
+
+Request: `{ "email": "budi@example.com" }`. Sukses `200`: `{ "data": { "sent": true } }`.
+
+Tautan berbentuk `<FRONTEND_URL>/reset-kata-sandi?token=…` dan berlaku 30 menit (`RESET_TOKEN_EXPIRES_IN`). Token ditandatangani bersama hash kata sandi user, jadi otomatis tidak berlaku setelah kata sandi diganti (sekali pakai).
+
+Email dikirim lewat SMTP jika `SMTP_HOST`, `SMTP_USER`, dan `SMTP_PASS` diisi (sementara Gmail + App Password; penyedia final menunggu STK-OPN-03). Jika SMTP belum diisi, di development tautan ditulis ke terminal backend dan di production endpoint ini mengembalikan `503 SERVICE_UNAVAILABLE`. Gagal kirim lewat SMTP juga `503`.
+
+Error: `400 VALIDATION_ERROR`, `404 NOT_FOUND` ("Email tidak terdaftar.", layar menampilkan ajakan daftar; register 409 sudah memberi tahu email mana yang terdaftar, jadi tidak ada kebocoran baru), `429 TOO_MANY_REQUESTS` setelah 5 permintaan dari IP yang sama dalam 15 menit, `503 SERVICE_UNAVAILABLE`.
+
+### A6 `POST /auth/password/reset`
+
+|        |                                             |
+| ------ | ------------------------------------------- |
+| Tujuan | Menyimpan kata sandi baru dari tautan email |
+| Peran  | Publik (pemegang token reset)               |
+| Layar  | `/reset-kata-sandi?token=…`                 |
+
+Request: `{ "token": "eyJhbGciOi…", "password": "SandiBaru123" }` (`password` 8–72 karakter, sama dengan register). Sukses `200`: `{ "data": { "password_reset": true } }`, cookie sesi ikut dihapus sehingga user masuk ulang dengan kata sandi baru.
+
+Error: `400 VALIDATION_ERROR`, `410 TOKEN_EXPIRED` ("Tautan reset sudah tidak berlaku. Silakan minta tautan baru.") untuk token rusak, kedaluwarsa, atau sudah dipakai.
 
 ---
 
@@ -703,14 +753,14 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 
 ## 11. Di luar kontrak core flow (rencana, belum dirinci)
 
-| Area                                 | Endpoint rencana                                                                     | Issue/backlog         |
-| ------------------------------------ | ------------------------------------------------------------------------------------ | --------------------- |
-| Admin kategori                       | `POST /admin/categories`, `PATCH /admin/categories/:id`                              | SP1-06                |
-| Profil provider                      | `GET`/`PUT /provider/profile`, `PUT /provider/location`                              | SP1-07                |
-| Jadwal, layanan, portofolio provider | `/provider/availability`, `/provider/services`, `/provider/portfolio`                | FR-PROV-04–06, SP1-08 |
-| Admin verifikasi dan moderasi        | `/admin/providers/:id/verify`, `/admin/reviews/:id/hide`, `/admin/users/:id/suspend` | FR-ADM-01–06          |
-| Email reset/verifikasi               | Menunggu STK-OPN-03                                                                  | –                     |
-| Payment sandbox                      | Stretch goal                                                                         | STR-01                |
+| Area                                 | Endpoint rencana                                                                                       | Issue/backlog         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------ | --------------------- |
+| Admin kategori                       | `POST /admin/categories`, `PATCH /admin/categories/:id`                                                | SP1-06                |
+| Profil provider                      | `GET`/`PUT /provider/profile`, `PUT /provider/location`                                                | SP1-07                |
+| Jadwal, layanan, portofolio provider | `/provider/availability`, `/provider/services`, `/provider/portfolio`                                  | FR-PROV-04–06, SP1-08 |
+| Admin verifikasi dan moderasi        | `/admin/providers/:id/verify`, `/admin/reviews/:id/hide`, `/admin/users/:id/suspend`                   | FR-ADM-01–06          |
+| Email reset/verifikasi               | Reset sudah ada (A5–A6, tautan di terminal); pengiriman email dan verifikasi email menunggu STK-OPN-03 | –                     |
+| Payment sandbox                      | Stretch goal                                                                                           | STR-01                |
 
 ---
 

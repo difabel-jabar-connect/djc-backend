@@ -1,0 +1,260 @@
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const { rateLimit } = require('express-rate-limit');
+const { z } = require('zod');
+const env = require('../config/env');
+const { requireAuth } = require('../middlewares/auth');
+const { ApiError, sendSuccess } = require('../utils/response');
+const { validate } = require('../utils/validate');
+const {
+  signToken,
+  setTokenCookie,
+  clearTokenCookie,
+  signResetToken,
+  readResetTokenSubject,
+  verifyResetToken,
+} = require('../utils/token');
+
+const email = z
+  .string('Email wajib diisi.')
+  .trim()
+  .toLowerCase()
+  .max(255, 'Email maksimal 255 karakter.')
+  .pipe(z.email('Format email tidak valid.'));
+
+const password = z
+  .string('Kata sandi wajib diisi.')
+  .min(8, 'Kata sandi minimal 8 karakter.')
+  .max(72, 'Kata sandi maksimal 72 karakter.');
+
+const registerSchema = z
+  .object({
+    role: z.enum(['customer', 'provider'], 'Peran harus customer atau provider.'),
+    full_name: z
+      .string('Nama lengkap wajib diisi.')
+      .trim()
+      .min(2, 'Nama lengkap minimal 2 karakter.')
+      .max(100, 'Nama lengkap maksimal 100 karakter.'),
+    email,
+    phone: z
+      .string('Nomor telepon wajib diisi.')
+      .trim()
+      .regex(/^\+62\d{8,13}$/, 'Nomor telepon harus diawali +62, contoh +6281234567890.'),
+    password,
+    alumni_reg_no: z.string().trim().max(50, 'Nomor alumni maksimal 50 karakter.').optional(),
+    city: z.string().trim().max(50, 'Kota maksimal 50 karakter.').optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.role !== 'provider') return;
+    if (!data.alumni_reg_no) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['alumni_reg_no'],
+        message: 'Nomor alumni UPTD PPSGHD wajib diisi untuk penyedia jasa.',
+      });
+    }
+    if (!data.city) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['city'],
+        message: 'Kota/kabupaten domisili wajib diisi untuk penyedia jasa.',
+      });
+    }
+  });
+
+const loginSchema = z.object({
+  email,
+  password: z.string('Kata sandi wajib diisi.').min(1, 'Kata sandi wajib diisi.'),
+  remember: z.boolean('remember harus true atau false.').optional(),
+});
+
+const forgotPasswordSchema = z.object({ email });
+
+const resetPasswordSchema = z.object({
+  token: z.string('Token reset wajib diisi.').min(1, 'Token reset wajib diisi.'),
+  password,
+});
+
+/** Data akun yang aman dikirim ke pemiliknya sendiri. password_hash tidak pernah dikirim. */
+function toAuthUser(user) {
+  return {
+    id: user.id,
+    role: user.role,
+    full_name: user.full_name,
+    email: user.email,
+    phone: user.phone,
+    status: user.status,
+  };
+}
+
+// Dipakai saat email tidak terdaftar supaya waktu respons sama dengan password salah.
+let dummyHash;
+async function compareWithDummy(password) {
+  dummyHash ??= await bcrypt.hash('bukan-password-siapa-pun', env.auth.bcryptSaltRounds);
+  await bcrypt.compare(password, dummyHash);
+}
+
+function createAuthRouter({ users, mailer, loginLimit = 10, resetLimit = 5 }) {
+  const router = express.Router();
+
+  // Membatasi permintaan tautan reset per IP: `resetLimit` kali per 15 menit.
+  const forgotLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: resetLimit,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: (req, res, next) =>
+      next(
+        new ApiError(
+          429,
+          'TOO_MANY_REQUESTS',
+          'Terlalu banyak permintaan reset kata sandi. Silakan coba lagi dalam 15 menit.',
+        ),
+      ),
+  });
+
+  // Membatasi percobaan login GAGAL per IP: `loginLimit` kali per 15 menit.
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: loginLimit,
+    skipSuccessfulRequests: true,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: (req, res, next) =>
+      next(
+        new ApiError(
+          429,
+          'TOO_MANY_REQUESTS',
+          'Terlalu banyak percobaan masuk. Silakan coba lagi dalam 15 menit.',
+        ),
+      ),
+  });
+
+  // A1 POST /auth/register
+  router.post('/register', async (req, res) => {
+    const body = validate(registerSchema, req.body);
+
+    if (await users.findByEmail(body.email)) throw emailTaken();
+
+    const passwordHash = await bcrypt.hash(body.password, env.auth.bcryptSaltRounds);
+    let user;
+    try {
+      user = await users.createUser({
+        role: body.role,
+        fullName: body.full_name,
+        email: body.email,
+        phone: body.phone,
+        passwordHash,
+        provider:
+          body.role === 'provider' ? { alumniRegNo: body.alumni_reg_no, city: body.city } : null,
+      });
+    } catch (error) {
+      // Dua pendaftaran bersamaan dengan email yang sama.
+      if (error.code === 'ER_DUP_ENTRY') throw emailTaken();
+      throw error;
+    }
+
+    return sendSuccess(res, { user: toAuthUser(user) }, { status: 201 });
+  });
+
+  // A2 POST /auth/login
+  router.post('/login', loginLimiter, async (req, res) => {
+    const body = validate(loginSchema, req.body);
+
+    const user = await users.findByEmail(body.email);
+    if (!user) {
+      await compareWithDummy(body.password);
+      throw invalidCredentials();
+    }
+    if (!(await bcrypt.compare(body.password, user.password_hash))) throw invalidCredentials();
+
+    // Akun suspended tetap boleh login untuk membaca data (data-model, SP1-05).
+    const remember = body.remember === true;
+    const { token, expiresAt } = signToken(user, { remember });
+    setTokenCookie(res, token, { remember, expiresAt });
+
+    return sendSuccess(res, {
+      user: toAuthUser(user),
+      token,
+      expires_at: expiresAt.toISOString(),
+    });
+  });
+
+  // A3 POST /auth/logout
+  router.post('/logout', requireAuth, (req, res) => {
+    clearTokenCookie(res);
+    return sendSuccess(res, { logged_out: true });
+  });
+
+  // A4 GET /auth/me
+  router.get('/me', requireAuth, async (req, res) => {
+    const user = await users.findById(req.auth.userId);
+    if (!user) {
+      clearTokenCookie(res);
+      throw new ApiError(401, 'UNAUTHENTICATED', 'Silakan masuk terlebih dahulu.');
+    }
+
+    const data = { user: toAuthUser(user) };
+    if (user.role === 'provider') {
+      const profile = await users.findProviderProfileByUserId(user.id);
+      data.provider_profile = profile
+        ? { id: profile.id, verification_status: profile.verification_status }
+        : null;
+    }
+    return sendSuccess(res, data);
+  });
+
+  // A5 POST /auth/password/forgot
+  // Email tidak terdaftar dijawab 404 karena layar Lupa Kata Sandi menampilkan
+  // "Email tidak terdaftar"; percobaan dibatasi forgotLimiter.
+  router.post('/password/forgot', forgotLimiter, async (req, res) => {
+    const body = validate(forgotPasswordSchema, req.body);
+
+    const user = await users.findByEmail(body.email);
+    if (!user) throw new ApiError(404, 'NOT_FOUND', 'Email tidak terdaftar.');
+
+    const token = signResetToken(user);
+    // Rute halaman reset di frontend (djc-frontend src/routes/paths.js: resetPassword).
+    const link = `${env.app.frontendUrl}/reset-kata-sandi?token=${encodeURIComponent(token)}`;
+    await mailer.sendPasswordReset({ to: user.email, name: user.full_name, link });
+
+    return sendSuccess(res, { sent: true });
+  });
+
+  // A6 POST /auth/password/reset
+  router.post('/password/reset', async (req, res) => {
+    const body = validate(resetPasswordSchema, req.body);
+
+    const userId = readResetTokenSubject(body.token);
+    const user = userId && (await users.findById(userId));
+    if (!user || !verifyResetToken(body.token, user)) {
+      throw new ApiError(
+        410,
+        'TOKEN_EXPIRED',
+        'Tautan reset sudah tidak berlaku. Silakan minta tautan baru.',
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(body.password, env.auth.bcryptSaltRounds);
+    await users.updatePassword(user.id, passwordHash);
+    clearTokenCookie(res);
+
+    return sendSuccess(res, { password_reset: true });
+  });
+
+  return router;
+}
+
+function emailTaken() {
+  return new ApiError(
+    409,
+    'CONFLICT',
+    'Email ini sudah terdaftar. Silakan masuk atau gunakan email lain.',
+  );
+}
+
+function invalidCredentials() {
+  return new ApiError(401, 'INVALID_CREDENTIALS', 'Email atau kata sandi salah.');
+}
+
+module.exports = createAuthRouter;

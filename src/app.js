@@ -4,15 +4,25 @@ const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const env = require('./config/env');
 const db = require('./config/db');
+const userRepository = require('./repositories/userRepository');
+const defaultMailer = require('./services/mailer');
 const createApiRouter = require('./routes');
 const notFound = require('./middlewares/notFound');
 const errorHandler = require('./middlewares/errorHandler');
 
 // deps dapat diganti saat testing, mis. createApp({ pingDb: async () => {} }).
-function createApp({ pingDb = db.ping } = {}) {
+function createApp({
+  pingDb = db.ping,
+  users = userRepository,
+  mailer = defaultMailer,
+  loginLimit,
+  resetLimit,
+} = {}) {
   const app = express();
 
   app.disable('x-powered-by');
+  // Di Railway, API berada di belakang satu proxy; dibutuhkan agar IP klien (rate limit) benar.
+  app.set('trust proxy', env.isProduction ? 1 : false);
   app.use(helmet());
   app.use(
     cors({
@@ -23,7 +33,7 @@ function createApp({ pingDb = db.ping } = {}) {
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
-  app.use('/api/v1', createApiRouter({ pingDb }));
+  app.use('/api/v1', createApiRouter({ pingDb, users, mailer, loginLimit, resetLimit }));
 
   app.use(notFound);
   app.use(errorHandler);
