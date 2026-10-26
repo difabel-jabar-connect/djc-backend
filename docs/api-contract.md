@@ -168,25 +168,24 @@ Database mati `503`:
 
 ### A1 `POST /auth/register`
 
-|             |                                               |
-| ----------- | --------------------------------------------- |
-| Tujuan      | Mendaftarkan akun customer atau provider baru |
-| Peran       | Publik                                        |
-| Requirement | FR-CUST-01, FR-PROV-01, US-CUST-01            |
-| Layar       | `/register`                                   |
+|             |                                 |
+| ----------- | ------------------------------- |
+| Tujuan      | Mendaftarkan akun customer baru |
+| Peran       | Publik                          |
+| Requirement | FR-CUST-01, US-CUST-01          |
+| Layar       | `/register`                     |
+
+Pendaftaran mandiri hanya untuk customer. Akun mitra (provider) dibuat oleh admin (API-04, lihat bagian 11 dan 12).
 
 Request body:
 
-| Field           | Tipe                     | Wajib         | Aturan                                                                                |
-| --------------- | ------------------------ | ------------- | ------------------------------------------------------------------------------------- |
-| `role`          | `customer` \| `provider` | ya            | Admin tidak bisa daftar lewat endpoint ini                                            |
-| `name`          | string                   | ya            | Nama lengkap, 2–100 karakter (kolom `users.full_name`)                                |
-| `email`         | string                   | ya            | Format email, unik, disimpan huruf kecil                                              |
-| `phone`         | string                   | ya            | Format `+62` diikuti 8–13 digit                                                       |
-| `password`      | string                   | ya            | 8–72 karakter (batas bcrypt)                                                          |
-| `alumni_reg_no` | string                   | tidak         | Nomor alumni UPTD PPSGHD, maks 50 karakter; wajib sebelum provider diverifikasi admin |
-| `city`          | string                   | jika provider | Kota/kabupaten domisili, maks 50 karakter                                             |
-| `category`      | string                   | tidak         | Slug kategori dari form Mitra, maks 60 karakter; diterima tetapi belum disimpan       |
+| Field      | Tipe       | Wajib | Aturan                                                 |
+| ---------- | ---------- | ----- | ------------------------------------------------------ |
+| `role`     | `customer` | tidak | Default `customer`; nilai lain ditolak `403 FORBIDDEN` |
+| `name`     | string     | ya    | Nama lengkap, 2–100 karakter (kolom `users.full_name`) |
+| `email`    | string     | ya    | Format email, unik, disimpan huruf kecil               |
+| `phone`    | string     | ya    | Format `+62` diikuti 8–13 digit                        |
+| `password` | string     | ya    | 8–72 karakter (batas bcrypt)                           |
 
 ```json
 {
@@ -198,9 +197,7 @@ Request body:
 }
 ```
 
-Nama field mengikuti form Daftar di frontend: request dan semua respons auth memakai `name`, yang disimpan di kolom `users.full_name`. `category` dari form Mitra belum disimpan karena kategori dipilih saat provider membuat layanan (SP2-07); field lain diabaikan. `city` wajib karena `provider_profiles.city` NOT NULL.
-
-Form Mitra belum punya isian nomor alumni, jadi `alumni_reg_no` opsional saat daftar dan disimpan `NULL`. Provider tanpa nomor alumni tetap `pending`; CHECK `provider_profiles_alumni_before_verified_check` menolak verifikasi sebelum nomor itu dilengkapi lewat profil provider (SP1-07). Ini menyimpang dari `data-model.md` (`alumni_reg_no` NOT NULL).
+Nama field mengikuti form Daftar di frontend: request dan semua respons auth memakai `name`, yang disimpan di kolom `users.full_name`. Field lain diabaikan.
 
 Registrasi tidak langsung login; frontend mengarahkan ke `/login` dengan pesan sukses (US-CUST-01).
 
@@ -221,11 +218,7 @@ Sukses `201`:
 }
 ```
 
-Untuk `role = provider`, server juga membuat `provider_profiles` dengan `verification_status = pending`; provider belum tampil publik sampai diverifikasi admin.
-
-Error: `400 VALIDATION_ERROR`, `409 CONFLICT` ("Email ini sudah terdaftar. Silakan masuk atau gunakan email lain.").
-
-> **Proposed:** provider mendaftar sendiri lalu diverifikasi admin. Dokumen requirement belum tegas: US-CUST-01 hanya mengatur registrasi customer, FR-PROV-01 dan alur provider dimulai dari "Provider Login", sedangkan US-ADM-01 menyebut "akun provider baru berstatus pending". Alternatifnya akun provider dibuat oleh admin. Perlu konfirmasi Product.
+Error: `400 VALIDATION_ERROR`, `403 FORBIDDEN` untuk `role` selain `customer` ("Akun mitra dibuat oleh admin. Silakan hubungi pengelola."), `409 CONFLICT` ("Email ini sudah terdaftar. Silakan masuk atau gunakan email lain.").
 
 ### A2 `POST /auth/login`
 
@@ -756,26 +749,27 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 
 ## 11. Di luar kontrak core flow (rencana, belum dirinci)
 
-| Area                                 | Endpoint rencana                                                                                       | Issue/backlog         |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------ | --------------------- |
-| Admin kategori                       | `POST /admin/categories`, `PATCH /admin/categories/:id`                                                | SP1-06                |
-| Profil provider                      | `GET`/`PUT /provider/profile`, `PUT /provider/location`                                                | SP1-07                |
-| Jadwal, layanan, portofolio provider | `/provider/availability`, `/provider/services`, `/provider/portfolio`                                  | FR-PROV-04–06, SP1-08 |
-| Admin verifikasi dan moderasi        | `/admin/providers/:id/verify`, `/admin/reviews/:id/hide`, `/admin/users/:id/suspend`                   | FR-ADM-01–06          |
-| Email reset/verifikasi               | Reset sudah ada (A5–A6, tautan di terminal); pengiriman email dan verifikasi email menunggu STK-OPN-03 | –                     |
-| Payment sandbox                      | Stretch goal                                                                                           | STR-01                |
+| Area                                 | Endpoint rencana                                                                                                     | Issue/backlog         |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| Admin kategori                       | `POST /admin/categories`, `PATCH /admin/categories/:id`                                                              | SP1-06                |
+| Admin membuat akun mitra             | `POST /admin/providers`: akun provider + `provider_profiles` `pending`, wajib `alumni_reg_no` dan `city`             | API-04                |
+| Profil provider                      | `GET`/`PUT /provider/profile`, `PUT /provider/location`                                                              | SP1-07                |
+| Jadwal, layanan, portofolio provider | `/provider/availability`, `/provider/services`, `/provider/portfolio`                                                | FR-PROV-04–06, SP1-08 |
+| Admin verifikasi dan moderasi        | `/admin/providers/:id/verify`, `/admin/reviews/:id/hide`, `/admin/users/:id/suspend`                                 | FR-ADM-01–06          |
+| Email reset/verifikasi               | Reset sudah ada (A5–A6, SMTP atau tautan di terminal); penyedia email final dan verifikasi email menunggu STK-OPN-03 | –                     |
+| Payment sandbox                      | Stretch goal                                                                                                         | STR-01                |
 
 ---
 
 ## 12. Keputusan dan pertanyaan untuk review
 
-| ID     | Pertanyaan                                     | Usulan draft                                                                                                                         | Reviewer      | Status     |
-| ------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------- | ---------- |
-| API-01 | Mekanisme token (STK-04)                       | JWT sudah disepakati tim (review PM di deonaja/difabel-jabar-connect#11). Usulan penyimpanan: cookie HttpOnly, Bearer tetap diterima | Full-stack    | `Proposed` |
-| API-08 | Auto-cancel booking `requested` setelah 24 jam | Ikut review PM di deonaja/difabel-jabar-connect#11; keputusan #3 data model diperbarui                                               | PM + SE       | `Proposed` |
-| API-02 | Cookie lintas domain Vercel ↔ Railway          | `SameSite=None; Secure` atau rewrite Vercel; diputuskan di SP1-10                                                                    | Full-stack    | `Proposed` |
-| API-03 | Login akun suspended                           | Boleh login, baca saja (ikut data model dan SP1-05; bertentangan dengan system flow 2.1 dan US-ADM-04)                               | SE            | `Proposed` |
-| API-04 | Pendaftaran provider                           | Daftar sendiri, status `pending` sampai diverifikasi admin                                                                           | SE + Product  | `Proposed` |
-| API-05 | Pencarian per provider atau per layanan        | Per provider (`GET /providers`); tambah `GET /services` jika UI butuh                                                                | SE + Frontend | `Proposed` |
-| API-06 | Bentuk endpoint transisi status                | Satu endpoint per aksi (`/accept`, `/reject`, …)                                                                                     | Full-stack    | `Proposed` |
-| API-07 | Data milik orang lain                          | `404`, bukan `403`                                                                                                                   | SE            | `Proposed` |
+| ID     | Pertanyaan                                     | Usulan draft                                                                                                                         | Reviewer      | Status       |
+| ------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------- | ------------ |
+| API-01 | Mekanisme token (STK-04)                       | JWT sudah disepakati tim (review PM di deonaja/difabel-jabar-connect#11). Usulan penyimpanan: cookie HttpOnly, Bearer tetap diterima | Full-stack    | `Proposed`   |
+| API-08 | Auto-cancel booking `requested` setelah 24 jam | Ikut review PM di deonaja/difabel-jabar-connect#11; keputusan #3 data model diperbarui                                               | PM + SE       | `Proposed`   |
+| API-02 | Cookie lintas domain Vercel ↔ Railway          | `SameSite=None; Secure` atau rewrite Vercel; diputuskan di SP1-10                                                                    | Full-stack    | `Proposed`   |
+| API-03 | Login akun suspended                           | Boleh login, baca saja (ikut data model dan SP1-05; bertentangan dengan system flow 2.1 dan US-ADM-04)                               | SE            | `Proposed`   |
+| API-04 | Pendaftaran provider                           | Akun mitra dibuat admin (keputusan tim, 26 Okt 2026); endpoint admin menyusul. `POST /auth/register` hanya untuk customer            | SE + Product  | `Diputuskan` |
+| API-05 | Pencarian per provider atau per layanan        | Per provider (`GET /providers`); tambah `GET /services` jika UI butuh                                                                | SE + Frontend | `Proposed`   |
+| API-06 | Bentuk endpoint transisi status                | Satu endpoint per aksi (`/accept`, `/reject`, …)                                                                                     | Full-stack    | `Proposed`   |
+| API-07 | Data milik orang lain                          | `404`, bukan `403`                                                                                                                   | SE            | `Proposed`   |

@@ -27,10 +27,10 @@ function fakeUsers() {
     async findProviderProfileByUserId(userId) {
       return profiles.get(userId) ?? null;
     },
-    async createUser({ role, fullName, email, phone, passwordHash, provider }) {
+    async createUser({ fullName, email, phone, passwordHash }) {
       const user = {
         id: randomUUID(),
-        role,
+        role: 'customer',
         full_name: fullName,
         email,
         phone,
@@ -38,9 +38,6 @@ function fakeUsers() {
         status: 'active',
       };
       rows.set(user.id, user);
-      if (role === 'provider') {
-        profiles.set(user.id, { id: randomUUID(), verification_status: 'pending', ...provider });
-      }
       return user;
     },
     async updatePassword(id, passwordHash) {
@@ -106,54 +103,37 @@ test('register customer mengembalikan 201 tanpa password_hash', async () => {
   assert.ok(await bcrypt.compare('rahasia123', stored.password_hash));
 });
 
-test('register provider membuat profil pending dan wajib kota', async () => {
+test('register tanpa role tetap membuat customer', async () => {
+  const users = fakeUsers();
+  const { role, ...withoutRole } = customer;
+  assert.equal(role, 'customer');
+
+  const res = await request(createApp({ users })).post('/api/v1/auth/register').send(withoutRole);
+
+  assert.equal(res.status, 201);
+  assert.equal(res.body.data.user.role, 'customer');
+  assert.equal(res.body.data.user.name, 'Budi Santoso');
+});
+
+test('register mitra/provider (atau peran lain) ditolak 403: akun mitra dibuat admin', async () => {
   const users = fakeUsers();
   const app = createApp({ users });
 
-  const missing = await request(app)
-    .post('/api/v1/auth/register')
-    .send({ ...customer, role: 'provider' });
-  assert.equal(missing.status, 400);
-  assert.deepEqual(
-    missing.body.error.details.map((d) => d.field),
-    ['city'],
-  );
-
-  const res = await request(app)
-    .post('/api/v1/auth/register')
-    .send({ ...customer, role: 'provider', alumni_reg_no: 'PPSGHD-001', city: 'Kota Bandung' });
-  assert.equal(res.status, 201);
-  const profile = users.profiles.get(res.body.data.user.id);
-  assert.equal(profile.verification_status, 'pending');
-  assert.equal(profile.city, 'Kota Bandung');
-  assert.equal(profile.alumniRegNo, 'PPSGHD-001');
-});
-
-test('register Mitra dari form frontend: tanpa nomor alumni, dengan kategori', async () => {
-  const users = fakeUsers();
-
-  const res = await request(createApp({ users }))
-    .post('/api/v1/auth/register')
-    .send({
-      ...customer,
-      name: 'Deni Setiawan',
-      email: 'deni@contoh.id',
-      role: 'provider',
-      city: 'Kota Bekasi',
-      category: 'kebersihan',
-    });
-
-  assert.equal(res.status, 201);
-  assert.equal(res.body.data.user.name, 'Deni Setiawan');
-  const profile = users.profiles.get(res.body.data.user.id);
-  assert.equal(profile.verification_status, 'pending');
-  assert.equal(profile.alumniRegNo, undefined, 'nomor alumni dilengkapi sebelum verifikasi');
+  for (const role of ['provider', 'admin']) {
+    const res = await request(app)
+      .post('/api/v1/auth/register')
+      .send({ ...customer, role, city: 'Kota Bekasi', category: 'kebersihan' });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error.code, 'FORBIDDEN');
+    assert.match(res.body.error.message, /dibuat oleh admin/);
+  }
+  assert.equal(users.rows.size, 0);
 });
 
 test('register menolak data tidak valid dengan detail per field', async () => {
   const res = await request(createApp({ users: fakeUsers() }))
     .post('/api/v1/auth/register')
-    .send({ role: 'admin', name: 'B', email: 'bukan-email', phone: '0812', password: '123' });
+    .send({ name: 'B', email: 'bukan-email', phone: '0812', password: '123' });
 
   assert.equal(res.status, 400);
   assert.equal(res.body.error.code, 'VALIDATION_ERROR');
@@ -162,7 +142,6 @@ test('register menolak data tidak valid dengan detail per field', async () => {
     'name',
     'password',
     'phone',
-    'role',
   ]);
 });
 
@@ -273,14 +252,14 @@ test('me membaca sesi dari cookie maupun header Bearer', async () => {
 });
 
 test('me untuk provider menyertakan status verifikasi', async () => {
+  // Akun mitra dibuat admin, jadi di sini langsung disiapkan di repository palsu.
   const users = fakeUsers();
+  const provider = await seedUser(users, { role: 'provider', email: 'deni@djc.test' });
+  users.profiles.set(provider.id, { id: randomUUID(), verification_status: 'pending' });
   const app = createApp({ users });
-  await request(app)
-    .post('/api/v1/auth/register')
-    .send({ ...customer, role: 'provider', alumni_reg_no: 'PPSGHD-001', city: 'Kota Bandung' });
   const login = await request(app)
     .post('/api/v1/auth/login')
-    .send({ email: 'budi@contoh.id', password: 'rahasia123' });
+    .send({ email: 'deni@djc.test', password: 'Demo12345' });
 
   const res = await request(app)
     .get('/api/v1/auth/me')

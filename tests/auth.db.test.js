@@ -5,6 +5,7 @@ process.env.NODE_ENV = 'test';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
+const bcrypt = require('bcryptjs');
 const request = require('supertest');
 
 test(
@@ -49,7 +50,8 @@ test(
     });
     assert.equal(duplicate.status, 409);
 
-    const provider = await request(app).post('/api/v1/auth/register').send({
+    // Mitra tidak bisa daftar sendiri (akun mitra dibuat admin).
+    const selfProvider = await request(app).post('/api/v1/auth/register').send({
       role: 'provider',
       name: 'Uji Penyedia',
       email: providerEmail,
@@ -58,15 +60,27 @@ test(
       city: 'Kota Bekasi',
       category: 'kebersihan',
     });
-    assert.equal(provider.status, 201);
+    assert.equal(selfProvider.status, 403);
+    assert.equal(await knex('users').where({ email: providerEmail }).first(), undefined);
 
-    const profile = await knex('provider_profiles')
-      .where({ user_id: provider.body.data.user.id })
-      .first();
-    assert.equal(profile.verification_status, 'pending');
-    assert.equal(profile.display_name, 'Uji Penyedia');
-    assert.equal(profile.city, 'Kota Bekasi');
-    assert.equal(profile.alumni_reg_no, null, 'nomor alumni dilengkapi sebelum verifikasi');
+    // Akun mitra disiapkan langsung di database seperti yang nanti dilakukan endpoint admin.
+    const providerUserId = randomUUID();
+    const profile = { id: randomUUID(), verification_status: 'pending' };
+    await knex('users').insert({
+      id: providerUserId,
+      role: 'provider',
+      full_name: 'Uji Penyedia',
+      email: providerEmail,
+      phone: '+6281299990003',
+      password_hash: await bcrypt.hash('RahasiaUji1', 4),
+    });
+    await knex('provider_profiles').insert({
+      id: profile.id,
+      user_id: providerUserId,
+      display_name: 'Uji Penyedia',
+      alumni_reg_no: `UJI-${suffix}`,
+      city: 'Kota Bekasi',
+    });
 
     const stored = await knex('users').where({ email: customerEmail }).first();
     assert.notEqual(stored.password_hash, 'RahasiaUji1');

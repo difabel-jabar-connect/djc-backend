@@ -28,37 +28,20 @@ const password = z
   .max(72, 'Kata sandi maksimal 72 karakter.');
 
 // Field request mengikuti form Daftar di frontend: `name` disimpan ke kolom users.full_name.
-const registerSchema = z
-  .object({
-    role: z.enum(['customer', 'provider'], 'Peran harus customer atau provider.'),
-    name: z
-      .string('Nama lengkap wajib diisi.')
-      .trim()
-      .min(2, 'Nama lengkap minimal 2 karakter.')
-      .max(100, 'Nama lengkap maksimal 100 karakter.'),
-    email,
-    phone: z
-      .string('Nomor telepon wajib diisi.')
-      .trim()
-      .regex(/^\+62\d{8,13}$/, 'Nomor telepon harus diawali +62, contoh +6281234567890.'),
-    password,
-    // Opsional saat daftar (form Mitra belum punya isiannya); wajib sebelum provider
-    // diverifikasi admin (CHECK provider_profiles_alumni_before_verified_check).
-    alumni_reg_no: z.string().trim().max(50, 'Nomor alumni maksimal 50 karakter.').optional(),
-    city: z.string().trim().max(50, 'Kota maksimal 50 karakter.').optional(),
-    // Dikirim form Mitra tetapi belum disimpan: kategori dipilih saat provider membuat
-    // layanan (SP2-07).
-    category: z.string().trim().max(60, 'Kategori maksimal 60 karakter.').optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.role === 'provider' && !data.city) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['city'],
-        message: 'Kota/kabupaten domisili wajib diisi untuk penyedia jasa.',
-      });
-    }
-  });
+// Pendaftaran mandiri hanya untuk customer; `role` lain ditolak di route (API-04).
+const registerSchema = z.object({
+  name: z
+    .string('Nama lengkap wajib diisi.')
+    .trim()
+    .min(2, 'Nama lengkap minimal 2 karakter.')
+    .max(100, 'Nama lengkap maksimal 100 karakter.'),
+  email,
+  phone: z
+    .string('Nomor telepon wajib diisi.')
+    .trim()
+    .regex(/^\+62\d{8,13}$/, 'Nomor telepon harus diawali +62, contoh +6281234567890.'),
+  password,
+});
 
 const loginSchema = z.object({
   email,
@@ -131,8 +114,16 @@ function createAuthRouter({ users, mailer, loginLimit = 10, resetLimit = 5 }) {
       ),
   });
 
-  // A1 POST /auth/register
+  // A1 POST /auth/register — hanya customer. Akun mitra dibuat admin (API-04).
   router.post('/register', async (req, res) => {
+    const role = req.body?.role;
+    if (role !== undefined && role !== 'customer') {
+      throw new ApiError(
+        403,
+        'FORBIDDEN',
+        'Akun mitra dibuat oleh admin. Silakan hubungi pengelola.',
+      );
+    }
     const body = validate(registerSchema, req.body);
 
     if (await users.findByEmail(body.email)) throw emailTaken();
@@ -141,13 +132,10 @@ function createAuthRouter({ users, mailer, loginLimit = 10, resetLimit = 5 }) {
     let user;
     try {
       user = await users.createUser({
-        role: body.role,
         fullName: body.name,
         email: body.email,
         phone: body.phone,
         passwordHash,
-        provider:
-          body.role === 'provider' ? { alumniRegNo: body.alumni_reg_no, city: body.city } : null,
       });
     } catch (error) {
       // Dua pendaftaran bersamaan dengan email yang sama.

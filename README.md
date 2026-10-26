@@ -71,16 +71,16 @@ Jika MySQL mati, endpoint yang sama mengembalikan HTTP 503 dengan `"database": "
 
 ## Auth
 
-| Endpoint                            | Fungsi                                                        |
-| ----------------------------------- | ------------------------------------------------------------- |
-| `POST /api/v1/auth/register`        | Daftar customer atau provider (provider otomatis `pending`)   |
-| `POST /api/v1/auth/login`           | Masuk, JWT dikirim di cookie HttpOnly `djc_token` dan di body |
-| `POST /api/v1/auth/logout`          | Menghapus cookie                                              |
-| `GET /api/v1/auth/me`               | User yang sedang login, plus status verifikasi untuk provider |
-| `POST /api/v1/auth/password/forgot` | Minta tautan reset kata sandi (berlaku 30 menit)              |
-| `POST /api/v1/auth/password/reset`  | Simpan kata sandi baru dengan token dari tautan               |
+| Endpoint                            | Fungsi                                                          |
+| ----------------------------------- | --------------------------------------------------------------- |
+| `POST /api/v1/auth/register`        | Daftar akun customer (akun mitra dibuat admin, `role` lain 403) |
+| `POST /api/v1/auth/login`           | Masuk, JWT dikirim di cookie HttpOnly `djc_token` dan di body   |
+| `POST /api/v1/auth/logout`          | Menghapus cookie                                                |
+| `GET /api/v1/auth/me`               | User yang sedang login, plus status verifikasi untuk provider   |
+| `POST /api/v1/auth/password/forgot` | Minta tautan reset kata sandi (berlaku 30 menit)                |
+| `POST /api/v1/auth/password/reset`  | Simpan kata sandi baru dengan token dari tautan                 |
 
-Sesi berlaku 24 jam, atau 7 hari jika login dengan `"remember": true`. Login gagal 10 kali dari IP yang sama dalam 15 menit dikunci sementara (429). Detail request dan respons ada di API contract bagian 4.
+Request dan respons memakai `name` untuk nama lengkap (kolom `users.full_name`). Sesi berlaku 24 jam, atau 7 hari jika login dengan `"remember": true`. Login gagal 10 kali dari IP yang sama dalam 15 menit dikunci sementara (429). Detail request dan respons ada di API contract bagian 4.
 
 Jika SMTP di `.env` belum diisi, link reset muncul di terminal backend (`[mailer] Reset kata sandi untuk …`).
 

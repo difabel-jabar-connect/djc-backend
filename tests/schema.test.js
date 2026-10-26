@@ -224,27 +224,6 @@ test('skema 12 tabel dan constraint utama', { skip }, async (t) => {
     }),
   );
 
-  await t.test('provider tanpa nomor alumni boleh pending tetapi tidak bisa diverifikasi', () =>
-    inTransaction(async (trx) => {
-      const ids = await insertBase(trx);
-      // Lokasi lengkap supaya yang diuji hanya aturan nomor alumni.
-      await trx('provider_profiles').where({ id: ids.provider }).update({
-        alumni_reg_no: null,
-        address_detail: 'Jl. Tes No. 1',
-        lat: -6.9175,
-        lng: 107.6191,
-        public_lat: -6.92,
-        public_lng: 107.62,
-      });
-      await assert.rejects(
-        trx('provider_profiles')
-          .where({ id: ids.provider })
-          .update({ verification_status: 'verified' }),
-        /provider_profiles_alumni_before_verified_check/,
-      );
-    }),
-  );
-
   await t.test('sesi koneksi memakai UTC untuk DEFAULT CURRENT_TIMESTAMP', async () => {
     const [[row]] = await knex.raw('SELECT @@session.time_zone AS tz');
     assert.equal(row.tz, '+00:00');

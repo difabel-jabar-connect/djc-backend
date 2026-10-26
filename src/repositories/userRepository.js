@@ -27,35 +27,24 @@ async function findProviderProfileByUserId(userId) {
 }
 
 /**
- * Membuat user. Untuk provider, profil `pending` dibuat dalam transaksi yang sama.
- * Melempar error mysql2 ER_DUP_ENTRY jika email sudah dipakai.
+ * Membuat akun customer (pendaftaran mandiri). Akun mitra dibuat admin lewat endpoint
+ * terpisah. Melempar error mysql2 ER_DUP_ENTRY jika email sudah dipakai.
  */
-async function createUser({ role, fullName, email, phone, passwordHash, provider }) {
-  const connection = await db.getPool().getConnection();
-  const user = { id: randomUUID(), role, full_name: fullName, email, phone, status: 'active' };
-  try {
-    await connection.beginTransaction();
-    await connection.query(
-      `INSERT INTO users (id, role, full_name, email, phone, password_hash)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [user.id, role, fullName, email, phone, passwordHash],
-    );
-    if (role === 'provider') {
-      await connection.query(
-        `INSERT INTO provider_profiles (id, user_id, display_name, alumni_reg_no, city)
-         VALUES (?, ?, ?, ?, ?)`,
-        // Nomor alumni boleh kosong saat daftar (NULL), dilengkapi sebelum verifikasi.
-        [randomUUID(), user.id, fullName, provider.alumniRegNo || null, provider.city],
-      );
-    }
-    await connection.commit();
-    return user;
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+async function createUser({ fullName, email, phone, passwordHash }) {
+  const user = {
+    id: randomUUID(),
+    role: 'customer',
+    full_name: fullName,
+    email,
+    phone,
+    status: 'active',
+  };
+  await db.getPool().query(
+    `INSERT INTO users (id, role, full_name, email, phone, password_hash)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [user.id, user.role, fullName, email, phone, passwordHash],
+  );
+  return user;
 }
 
 async function updatePassword(id, passwordHash) {
