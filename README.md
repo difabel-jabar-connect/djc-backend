@@ -164,7 +164,7 @@ Filter: `q`, `category_id` atau `category` (slug), `city`, `min_price`, `max_pri
 | `PUT`/`POST /api/v1/bookings/:id/start`, `complete` | Provider memulai dan menyelesaikan pesanan                         |
 | `PUT`/`POST /api/v1/bookings/:id/cancel`            | Customer (requested/accepted) atau provider (accepted) membatalkan |
 
-Alur status: `requested → accepted → in_progress → completed`, ditambah `rejected` dan `cancelled`. Lompatan status ditolak `409 INVALID_TRANSITION`, dan setiap perubahan dicatat di `booking_status_history` dalam transaksi yang sama. Kontak dan alamat lawan transaksi belum dibuka (BE-07). Coba dengan akun demo `budi@djc.test` (customer) dan `deni@djc.test` (provider).
+Alur status: `requested → accepted → in_progress → completed`, ditambah `rejected` dan `cancelled`. Lompatan status ditolak `409 INVALID_TRANSITION`, dan setiap perubahan dicatat di `booking_status_history` dalam transaksi yang sama. Telepon dan alamat lawan transaksi hanya terbuka saat status `accepted` atau `in_progress`, lalu dikunci lagi setelah selesai, ditolak, atau dibatalkan (BE-07); admin tidak melihat kontak atau alamat. Coba dengan akun demo `budi@djc.test` (customer) dan `deni@djc.test` (provider).
 
 ## Profil provider
 

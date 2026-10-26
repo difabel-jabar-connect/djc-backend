@@ -866,7 +866,7 @@ Contoh sukses `200`, dilihat customer saat status `accepted`, mode `at_customer`
 
 Admin boleh melihat detail booking mana pun (hanya baca). Error: `401 UNAUTHENTICATED`, `404 NOT_FOUND` (termasuk booking milik orang lain dan id bukan UUID).
 
-**Status implementasi (BE-06):** kontak dan alamat lawan transaksi belum dibuka sama sekali; `customer.phone`, `provider.phone`, dan `provider.address_detail` selalu `null`, provider hanya melihat `location.area`, dan nama customer untuk provider selalu nama depan + inisial. Aturan buka-tutup di tabel access matrix di atas dikerjakan di BE-07. Customer pemilik dan admin melihat lokasi yang diisi customer sendiri. `can_review` selalu `false` sampai BE-08.
+**Status implementasi (BE-07):** access matrix di awal bagian 7 sudah diterapkan di B1, B2, dan B3 (daftar dan detail memakai aturan yang sama). Telepon customer dan provider, alamat customer (`location.address`, `lat`, `lng` untuk `at_customer`), dan `provider.address_detail` (untuk `at_provider`) hanya terisi untuk **lawan transaksi** saat status `accepted` atau `in_progress`; saat `requested`, `completed`, `rejected`, dan `cancelled` berisi `null`. Nama customer untuk provider: nama depan + inisial saat `requested`, nama lengkap setelah pernah `accepted`. Data milik sendiri selalu terlihat oleh pemiliknya (customer melihat alamat yang ia isi, provider melihat teleponnya sendiri). **Admin tidak melihat kontak maupun alamat** di endpoint ini (default paling aman). Endpoint publik (P3, L1, L2) tidak pernah memuat telepon atau alamat. `can_review` selalu `false` sampai BE-08.
 
 ---
 

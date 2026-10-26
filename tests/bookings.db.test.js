@@ -129,6 +129,9 @@ test(
     assert.equal(asProviderView.body.data.location.address, null, 'alamat belum dibuka (BE-07)');
     assert.equal(asProviderView.body.data.location.area, 'Coblong, Kota Bandung');
 
+    const view = async (auth) =>
+      (await request(app).get(`/api/v1/bookings/${id}`).set('Authorization', auth)).body.data;
+
     for (const [name, body] of [
       ['accept', {}],
       ['start', {}],
@@ -139,6 +142,31 @@ test(
         .set('Authorization', asProvider)
         .send(body);
       assert.equal(res.status, 200, `${name}: ${JSON.stringify(res.body)}`);
+
+      // BE-07: kontak dan alamat terbuka saat accepted/in_progress, dikunci lagi saat completed.
+      const open = name !== 'complete';
+      const providerView = await view(asProvider);
+      assert.equal(
+        providerView.customer.phone,
+        open ? '+6281299990013' : null,
+        `${name}: telepon customer`,
+      );
+      assert.equal(
+        providerView.location.address,
+        open ? 'Jl. Uji Customer No. 3' : null,
+        `${name}: alamat customer`,
+      );
+      assert.equal(
+        providerView.customer.name,
+        'Uji Pemesan',
+        'nama lengkap setelah pernah diterima',
+      );
+      const customerView = await view(asCustomer);
+      assert.equal(
+        customerView.provider.phone,
+        open ? '+6281299990014' : null,
+        `${name}: telepon provider`,
+      );
     }
 
     const stored = await knex('bookings').where({ id }).first();

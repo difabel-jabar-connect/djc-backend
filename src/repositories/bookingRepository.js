@@ -3,9 +3,9 @@ const db = require('../config/db');
 
 const { randomUUID } = crypto;
 
-// Kolom booking beserta nama layanan, provider, dan customer untuk serializer di route.
-// Kontak (telepon) dan alamat provider sengaja tidak dibaca di sini; pembukaan kontak
-// sesuai status adalah BE-07.
+// Kolom booking beserta data layanan, provider, dan customer untuk serializer di route.
+// Kontak dan alamat dibaca di sini, tetapi hanya dikirim ke lawan transaksi saat status
+// mengizinkan (aturan buka-tutup di src/routes/bookings.js, BE-07).
 const COLUMNS = `b.id, b.code, b.status, b.customer_id, b.provider_id, b.service_id,
   b.scheduled_date, b.start_time, b.service_mode, b.location_area, b.location_address,
   b.location_lat, b.location_lng, b.customer_note, b.pricing_type_snapshot,
@@ -14,11 +14,15 @@ const COLUMNS = `b.id, b.code, b.status, b.customer_id, b.provider_id, b.service
   sv.title AS service_title,
   p.user_id AS provider_user_id, p.display_name AS provider_display_name,
   p.city AS provider_city, p.district AS provider_district,
-  cu.full_name AS customer_full_name`;
+  p.address_detail AS provider_address_detail, pu.phone AS provider_phone,
+  cu.full_name AS customer_full_name, cu.phone AS customer_phone,
+  EXISTS (SELECT 1 FROM booking_status_history h
+          WHERE h.booking_id = b.id AND h.to_status = 'accepted') AS was_accepted`;
 
 const FROM = `FROM bookings b
   JOIN services sv ON sv.id = b.service_id
   JOIN provider_profiles p ON p.id = b.provider_id
+  JOIN users pu ON pu.id = p.user_id
   JOIN users cu ON cu.id = b.customer_id`;
 
 /** Layanan yang boleh dipesan: aktif, kategori aktif, provider verified dengan akun aktif. */

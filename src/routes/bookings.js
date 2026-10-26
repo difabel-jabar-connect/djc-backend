@@ -37,13 +37,37 @@ function shortName(fullName) {
   return words.length > 1 ? `${words[0]} ${words.at(-1)[0].toUpperCase()}.` : words[0];
 }
 
+// Kontak dan alamat lawan transaksi hanya terbuka selama layanan berjalan (BE-07,
+// access matrix api-contract.md bagian 7). Selesai, ditolak, atau dibatalkan → dikunci lagi.
+const CONTACT_OPEN = new Set(['accepted', 'in_progress']);
+
 /**
- * Bentuk booking untuk respons (B3). Kontak (telepon) dan alamat lawan transaksi belum
- * dibuka di sini; aturan buka-tutup kontak sesuai status adalah BE-07. Customer pemilik
- * dan admin melihat lokasi yang diisi customer sendiri; provider hanya `location.area`.
+ * Apa yang boleh dilihat `viewer` (customer/provider pemilik booking, atau admin) dari
+ * data privat booking ini. Data milik sendiri selalu terlihat oleh pemiliknya; data lawan
+ * transaksi hanya saat status `accepted`/`in_progress`. Admin tidak melihat kontak atau
+ * alamat sama sekali (default paling aman; moderasi tidak butuh data itu).
+ */
+function contactAccess(row, viewer) {
+  const open = CONTACT_OPEN.has(row.status);
+  const isCustomer = viewer === 'customer';
+  const isProvider = viewer === 'provider';
+  return {
+    providerPhone: isProvider || (isCustomer && open),
+    providerAddress: row.service_mode === 'at_provider' && (isProvider || (isCustomer && open)),
+    customerPhone: isCustomer || (isProvider && open),
+    customerLocation: isCustomer || (isProvider && open),
+    // Nama lengkap customer untuk provider: setelah diterima, dan tetap terlihat setelah
+    // selesai/dibatalkan jika pesanan pernah diterima. Saat `requested`: nama depan + inisial.
+    customerFullName: !isProvider || open || Boolean(row.was_accepted),
+  };
+}
+
+/**
+ * Bentuk booking untuk respons (B2/B3). Field privat diisi atau dikosongkan (`null`)
+ * menurut contactAccess(), dipakai sama untuk daftar maupun detail.
  */
 function toBooking(row, viewer) {
-  const seesOwnLocation = viewer === 'customer' || viewer === 'admin';
+  const access = contactAccess(row, viewer);
   const booking = {
     id: row.id,
     code: row.code,
@@ -54,21 +78,21 @@ function toBooking(row, viewer) {
       display_name: row.provider_display_name,
       city: row.provider_city,
       district: row.provider_district,
-      phone: null,
-      address_detail: null,
+      phone: access.providerPhone ? (row.provider_phone ?? null) : null,
+      address_detail: access.providerAddress ? (row.provider_address_detail ?? null) : null,
     },
     customer: {
-      name: viewer === 'provider' ? shortName(row.customer_full_name) : row.customer_full_name,
-      phone: null,
+      name: access.customerFullName ? row.customer_full_name : shortName(row.customer_full_name),
+      phone: access.customerPhone ? (row.customer_phone ?? null) : null,
     },
     scheduled_date: dateOnly(row.scheduled_date),
     start_time: String(row.start_time).slice(0, 5),
     service_mode: row.service_mode,
     location: {
       area: row.location_area,
-      address: seesOwnLocation ? row.location_address : null,
-      lat: seesOwnLocation ? toNumber(row.location_lat) : null,
-      lng: seesOwnLocation ? toNumber(row.location_lng) : null,
+      address: access.customerLocation ? row.location_address : null,
+      lat: access.customerLocation ? toNumber(row.location_lat) : null,
+      lng: access.customerLocation ? toNumber(row.location_lng) : null,
     },
     customer_note: row.customer_note,
     pricing_type_snapshot: row.pricing_type_snapshot,
@@ -447,4 +471,4 @@ function createBookingsRouter({ bookings, users, now = () => new Date() }) {
   return router;
 }
 
-module.exports = { createBookingsRouter, shortName, todayInJakarta };
+module.exports = { createBookingsRouter, shortName, todayInJakarta, contactAccess };
