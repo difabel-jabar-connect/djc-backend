@@ -1,6 +1,3 @@
-| C2 | POST | `/admin/categories` | Admin | Kelola kategori | Sudah ada |
-| C3 | PUT | `/admin/categories/:id` | Admin | Kelola kategori | Sudah ada |
-
 # Difabel Jabar Connect — API Contract
 
 ## Kendali dokumen
@@ -123,7 +120,9 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | A4  | GET    | `/auth/me`               | Login                | Akun             | Sudah ada           |
 | A5  | POST   | `/auth/password/forgot`  | Publik               | Akun             | Sudah ada           |
 | A6  | POST   | `/auth/password/reset`   | Publik               | Akun             | Sudah ada           |
-| C1  | GET    | `/categories`            | Publik               | Search           | Proposed            |
+| C1  | GET    | `/categories`            | Publik               | Search           | Sudah ada           |
+| C2  | POST   | `/admin/categories`      | Admin                | Kelola kategori  | Sudah ada           |
+| C3  | PUT    | `/admin/categories/:id`  | Admin                | Kelola kategori  | Sudah ada           |
 | P1  | GET    | `/providers`             | Publik               | Search           | Proposed            |
 | P2  | GET    | `/providers/map`         | Publik               | Location         | Proposed            |
 | P3  | GET    | `/providers/:id`         | Publik               | Provider         | Proposed            |
@@ -815,4 +814,4 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 | API-04 | Pendaftaran provider                           | Akun mitra dibuat admin (keputusan tim, 26 Okt 2026); endpoint admin menyusul. `POST /auth/register` hanya untuk customer            | SE + Product  | `Diputuskan` |
 | API-05 | Pencarian per provider atau per layanan        | Per provider (`GET /providers`); tambah `GET /services` jika UI butuh                                                                | SE + Frontend | `Proposed`   |
 | API-06 | Bentuk endpoint transisi status                | Satu endpoint per aksi (`/accept`, `/reject`, …)                                                                                     | Full-stack    | `Proposed`   |
-| C1     | GET                                            | `/categories`                                                                                                                        | Publik        | Search       | Sudah ada |
+| API-07 | Data milik orang lain                          | `404`, bukan `403`                                                                                                                   | SE            | `Proposed`   |
