@@ -55,6 +55,11 @@ env.cloudinary = {
   apiSecret: process.env.CLOUDINARY_API_SECRET || '',
 };
 
+// Pengecekan auto-cancel booking `requested` > 24 jam. 0 = dimatikan.
+env.bookings = {
+  autoCancelIntervalMinutes: toInt(process.env.AUTO_CANCEL_INTERVAL_MINUTES, 5),
+};
+
 env.app = {
   // Alamat frontend untuk tautan di email, mis. tautan reset kata sandi.
   frontendUrl: (process.env.FRONTEND_URL || env.corsOrigins[0] || '').replace(/\/+$/, ''),

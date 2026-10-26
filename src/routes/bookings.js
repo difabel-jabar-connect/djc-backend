@@ -103,8 +103,8 @@ function toBooking(row, viewer) {
     final_total: toNumber(row.final_total),
     cancelled_by: row.cancelled_by,
     status_reason: row.status_reason,
-    // Ulasan dibuat di BE-08.
-    can_review: false,
+    // Customer pemilik bisa memberi satu ulasan setelah pesanan selesai (R1, BE-08).
+    can_review: viewer === 'customer' && row.status === 'completed' && !row.has_review,
     created_at: row.created_at,
   };
   if (row.history) {
@@ -202,7 +202,22 @@ function invalidTransition(current, action) {
 }
 
 /** B1–B3 dan transisi status S1–S5 (BE-06). Auto-cancel 24 jam ada di BE-08. */
-function createBookingsRouter({ bookings, users, now = () => new Date() }) {
+const reviewSchema = z.object({
+  rating: z
+    .number('Rating wajib diisi.')
+    .int('Rating harus bilangan bulat 1–5.')
+    .min(1, 'Rating minimal 1.')
+    .max(5, 'Rating maksimal 5.'),
+  comment: z
+    .string('Komentar harus berupa teks.')
+    .trim()
+    .max(1000, 'Komentar maksimal 1000 karakter.')
+    .optional(),
+});
+
+const reviewExists = () => new ApiError(409, 'CONFLICT', 'Pesanan ini sudah diberi ulasan.');
+
+function createBookingsRouter({ bookings, reviews, users, now = () => new Date() }) {
   const router = express.Router();
   router.use(requireAuth, requireActiveUser({ users }));
 
@@ -308,6 +323,41 @@ function createBookingsRouter({ bookings, users, now = () => new Date() }) {
     const { row, viewer } = await loadForViewer(req);
     return sendSuccess(res, toBooking(row, viewer));
   });
+
+  // R1 POST /bookings/:id/reviews (issue #13) dan /bookings/:id/review (api-contract.md)
+  const reviewHandler = async (req, res) => {
+    const { row } = await loadForViewer(req);
+    if (row.customer_id !== req.auth.userId) {
+      throw new ApiError(404, 'NOT_FOUND', 'Pesanan tidak ditemukan.');
+    }
+    const body = validate(reviewSchema, req.body);
+    if (row.status !== 'completed') {
+      throw new ApiError(
+        409,
+        'INVALID_TRANSITION',
+        'Ulasan hanya bisa diberikan setelah pesanan selesai.',
+      );
+    }
+    if (row.has_review) throw reviewExists();
+
+    let review;
+    try {
+      review = await reviews.createForBooking({
+        bookingId: row.id,
+        customerId: row.customer_id,
+        providerId: row.provider_id,
+        rating: body.rating,
+        comment: body.comment || null,
+      });
+    } catch (error) {
+      // Dua ulasan bersamaan untuk booking yang sama: index unik reviews_booking_id_unique.
+      if (error.code === 'ER_DUP_ENTRY') throw reviewExists();
+      throw error;
+    }
+    return sendSuccess(res, review, { status: 201 });
+  };
+  router.post('/:id/reviews', requireRole('customer'), reviewHandler);
+  router.post('/:id/review', requireRole('customer'), reviewHandler);
 
   /**
    * Mendaftarkan aksi status di PUT (issue #11) dan POST (api-contract.md bagian 8).

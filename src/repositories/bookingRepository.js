@@ -17,7 +17,8 @@ const COLUMNS = `b.id, b.code, b.status, b.customer_id, b.provider_id, b.service
   p.address_detail AS provider_address_detail, pu.phone AS provider_phone,
   cu.full_name AS customer_full_name, cu.phone AS customer_phone,
   EXISTS (SELECT 1 FROM booking_status_history h
-          WHERE h.booking_id = b.id AND h.to_status = 'accepted') AS was_accepted`;
+          WHERE h.booking_id = b.id AND h.to_status = 'accepted') AS was_accepted,
+  EXISTS (SELECT 1 FROM reviews r WHERE r.booking_id = b.id) AS has_review`;
 
 const FROM = `FROM bookings b
   JOIN services sv ON sv.id = b.service_id
@@ -219,6 +220,40 @@ async function transition(id, { to, changedBy, decide }) {
   return findById(id);
 }
 
+/**
+ * Membatalkan semua booking `requested` yang dibuat pada atau sebelum `createdBefore`
+ * (DEC-TIMEOUT): status `cancelled`, `cancelled_by = system`, alasan diisi, dan satu baris
+ * riwayat (changed_by NULL = sistem) per booking, semuanya dalam satu transaksi.
+ * Baris dikunci FOR UPDATE supaya tidak bentrok dengan provider yang menerima pesanan
+ * pada saat yang sama. Mengembalikan id booking yang dibatalkan.
+ */
+async function cancelExpiredRequested({ createdBefore, reason }) {
+  return inTransaction(async (connection) => {
+    const [rows] = await connection.query(
+      `SELECT id FROM bookings WHERE status = 'requested' AND created_at <= ? FOR UPDATE`,
+      [createdBefore],
+    );
+    const ids = rows.map((row) => row.id);
+    if (!ids.length) return ids;
+
+    await connection.query(
+      `UPDATE bookings SET status = 'cancelled', cancelled_by = 'system', status_reason = ?
+       WHERE id IN (?)`,
+      [reason, ids],
+    );
+    for (const id of ids) {
+      await insertHistory(connection, {
+        bookingId: id,
+        from: 'requested',
+        to: 'cancelled',
+        changedBy: null,
+        reason,
+      });
+    }
+    return ids;
+  });
+}
+
 module.exports = {
   findBookableService,
   listSlotsForDay,
@@ -227,4 +262,5 @@ module.exports = {
   findById,
   list,
   transition,
+  cancelExpiredRequested,
 };

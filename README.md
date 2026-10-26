@@ -162,9 +162,10 @@ Filter: `q`, `category_id` atau `category` (slug), `city`, `min_price`, `max_pri
 | `GET /api/v1/bookings/:id`                          | Detail pesanan beserta riwayat status                              |
 | `PUT`/`POST /api/v1/bookings/:id/accept`, `reject`  | Provider menerima atau menolak (`reason` wajib) pesanan            |
 | `PUT`/`POST /api/v1/bookings/:id/start`, `complete` | Provider memulai dan menyelesaikan pesanan                         |
+| `POST /api/v1/bookings/:id/reviews`                 | Customer memberi rating 1–5 dan ulasan setelah pesanan selesai     |
 | `PUT`/`POST /api/v1/bookings/:id/cancel`            | Customer (requested/accepted) atau provider (accepted) membatalkan |
 
-Alur status: `requested → accepted → in_progress → completed`, ditambah `rejected` dan `cancelled`. Lompatan status ditolak `409 INVALID_TRANSITION`, dan setiap perubahan dicatat di `booking_status_history` dalam transaksi yang sama. Telepon dan alamat lawan transaksi hanya terbuka saat status `accepted` atau `in_progress`, lalu dikunci lagi setelah selesai, ditolak, atau dibatalkan (BE-07); admin tidak melihat kontak atau alamat. Coba dengan akun demo `budi@djc.test` (customer) dan `deni@djc.test` (provider).
+Alur status: `requested → accepted → in_progress → completed`, ditambah `rejected` dan `cancelled`. Lompatan status ditolak `409 INVALID_TRANSITION`, dan setiap perubahan dicatat di `booking_status_history` dalam transaksi yang sama. Telepon dan alamat lawan transaksi hanya terbuka saat status `accepted` atau `in_progress`, lalu dikunci lagi setelah selesai, ditolak, atau dibatalkan (BE-07); admin tidak melihat kontak atau alamat. Satu ulasan per pesanan; `rating_avg`/`rating_count` provider dihitung ulang otomatis. Pesanan `requested` yang tidak direspons 24 jam dibatalkan otomatis oleh sistem (dicek setiap `AUTO_CANCEL_INTERVAL_MINUTES`, default 5 menit). Coba dengan akun demo `budi@djc.test` (customer) dan `deni@djc.test` (provider).
 
 ## Profil provider
 

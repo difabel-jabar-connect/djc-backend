@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, kategori C1–C3, profil provider P3, P5, P6, upload foto dan portofolio P7, P8, pencarian layanan L1, L2, serta booking B1–B3 dan status S1–S5.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, kategori C1–C3, profil provider P3, P5, P6, upload foto dan portofolio P7, P8, pencarian layanan L1, L2, booking B1–B3, status S1–S5, dan ulasan R1.
 
 ---
 
@@ -145,7 +145,7 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | S3  | POST   | `/bookings/:id/start`    | Provider             | Status booking   | Sudah ada           |
 | S4  | POST   | `/bookings/:id/complete` | Provider             | Status booking   | Sudah ada           |
 | S5  | POST   | `/bookings/:id/cancel`   | Customer, Provider   | Status booking   | Sudah ada           |
-| R1  | POST   | `/bookings/:id/review`   | Customer             | Review           | Proposed            |
+| R1  | POST   | `/bookings/:id/review`   | Customer             | Review           | Sudah ada           |
 
 Semua path di bawah ditulis relatif terhadap `/api/v1`.
 
@@ -866,7 +866,7 @@ Contoh sukses `200`, dilihat customer saat status `accepted`, mode `at_customer`
 
 Admin boleh melihat detail booking mana pun (hanya baca). Error: `401 UNAUTHENTICATED`, `404 NOT_FOUND` (termasuk booking milik orang lain dan id bukan UUID).
 
-**Status implementasi (BE-07):** access matrix di awal bagian 7 sudah diterapkan di B1, B2, dan B3 (daftar dan detail memakai aturan yang sama). Telepon customer dan provider, alamat customer (`location.address`, `lat`, `lng` untuk `at_customer`), dan `provider.address_detail` (untuk `at_provider`) hanya terisi untuk **lawan transaksi** saat status `accepted` atau `in_progress`; saat `requested`, `completed`, `rejected`, dan `cancelled` berisi `null`. Nama customer untuk provider: nama depan + inisial saat `requested`, nama lengkap setelah pernah `accepted`. Data milik sendiri selalu terlihat oleh pemiliknya (customer melihat alamat yang ia isi, provider melihat teleponnya sendiri). **Admin tidak melihat kontak maupun alamat** di endpoint ini (default paling aman). Endpoint publik (P3, L1, L2) tidak pernah memuat telepon atau alamat. `can_review` selalu `false` sampai BE-08.
+**Status implementasi (BE-07):** access matrix di awal bagian 7 sudah diterapkan di B1, B2, dan B3 (daftar dan detail memakai aturan yang sama). Telepon customer dan provider, alamat customer (`location.address`, `lat`, `lng` untuk `at_customer`), dan `provider.address_detail` (untuk `at_provider`) hanya terisi untuk **lawan transaksi** saat status `accepted` atau `in_progress`; saat `requested`, `completed`, `rejected`, dan `cancelled` berisi `null`. Nama customer untuk provider: nama depan + inisial saat `requested`, nama lengkap setelah pernah `accepted`. Data milik sendiri selalu terlihat oleh pemiliknya (customer melihat alamat yang ia isi, provider melihat teleponnya sendiri). **Admin tidak melihat kontak maupun alamat** di endpoint ini (default paling aman). Endpoint publik (P3, L1, L2) tidak pernah memuat telepon atau alamat. `can_review` bernilai `true` hanya untuk customer pemilik saat status `completed` dan booking belum diulas (BE-08).
 
 ---
 
@@ -898,6 +898,7 @@ Pembatalan oleh sistem tidak punya endpoint publik. Ada dua pemicu:
 
 - Aksi admin `suspend_user`: booking `requested`/`accepted` milik akun tersebut dibatalkan.
 - **Batas waktu respons (usulan dari review PM di deonaja/difabel-jabar-connect#11):** booking `requested` yang tidak direspons provider dalam 24 jam otomatis menjadi `cancelled` dengan `cancelled_by = system` dan `status_reason` terisi. Ini mengubah keputusan #3 di `data-model.md` (sebelumnya: tetap `requested` tanpa batas waktu), sehingga data model perlu diperbarui setelah deonaja/difabel-jabar-connect#11 diterima. Mekanisme pemicunya (job terjadwal atau pengecekan saat booking dibaca) ditentukan saat implementasi booking.
+- **Implementasi (BE-08):** server menjalankan pengecekan berkala (`AUTO_CANCEL_INTERVAL_MINUTES`, default 5 menit, `0` = mati; juga sekali saat server menyala). Booking `requested` yang `created_at`-nya ≥ 24 jam lalu menjadi `cancelled`, `cancelled_by = system`, `status_reason` = "Batas waktu konfirmasi 24 jam terlampaui (dibatalkan otomatis oleh sistem)", dan satu baris riwayat dengan `changed_by` NULL (`changed_by_role: "system"` di B3), semuanya dalam satu transaksi dengan baris dikunci `FOR UPDATE`.
 
 ---
 
@@ -919,7 +920,7 @@ Request: `{ "rating": 5, "comment": "Cepat, rapi, penjelasannya jelas." }`
 | `rating`  | Integer 1–5, wajib           |
 | `comment` | Maks 1000 karakter, opsional |
 
-`customer_id` dan `provider_id` diisi server dari booking. Server menghitung ulang `rating_avg` dan `rating_count` provider dalam transaksi yang sama.
+`customer_id` dan `provider_id` diisi server dari booking. Server menghitung ulang `rating_avg` (rata-rata 1 desimal) dan `rating_count` provider dari ulasan yang tidak disembunyikan, dalam transaksi yang sama. Endpoint juga bisa dipanggil sebagai `POST /bookings/:id/reviews` (issue #13). Hanya customer pemilik booking; customer lain mendapat `404`, provider/admin `403`.
 
 Sukses `201`:
 
