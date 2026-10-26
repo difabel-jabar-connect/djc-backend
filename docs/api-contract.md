@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, kategori C1–C3, profil provider P3, P5, P6, upload foto dan portofolio P7, P8, serta pencarian layanan L1, L2.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, kategori C1–C3, profil provider P3, P5, P6, upload foto dan portofolio P7, P8, pencarian layanan L1, L2, serta booking B1–B3 dan status S1–S5.
 
 ---
 
@@ -137,14 +137,14 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | P4  | GET    | `/providers/:id/reviews` | Publik               | Provider, Review | Proposed            |
 | L1  | GET    | `/services`              | Publik               | Search           | Sudah ada           |
 | L2  | GET    | `/services/:id`          | Publik               | Search, Booking  | Sudah ada           |
-| B1  | POST   | `/bookings`              | Customer             | Booking          | Proposed            |
-| B2  | GET    | `/bookings`              | Customer, Provider   | Booking          | Proposed            |
-| B3  | GET    | `/bookings/:id`          | Pihak booking, Admin | Booking          | Proposed            |
-| S1  | POST   | `/bookings/:id/accept`   | Provider             | Status booking   | Proposed            |
-| S2  | POST   | `/bookings/:id/reject`   | Provider             | Status booking   | Proposed            |
-| S3  | POST   | `/bookings/:id/start`    | Provider             | Status booking   | Proposed            |
-| S4  | POST   | `/bookings/:id/complete` | Provider             | Status booking   | Proposed            |
-| S5  | POST   | `/bookings/:id/cancel`   | Customer, Provider   | Status booking   | Proposed            |
+| B1  | POST   | `/bookings`              | Customer             | Booking          | Sudah ada           |
+| B2  | GET    | `/bookings`              | Customer, Provider   | Booking          | Sudah ada           |
+| B3  | GET    | `/bookings/:id`          | Pihak booking, Admin | Booking          | Sudah ada           |
+| S1  | POST   | `/bookings/:id/accept`   | Provider             | Status booking   | Sudah ada           |
+| S2  | POST   | `/bookings/:id/reject`   | Provider             | Status booking   | Sudah ada           |
+| S3  | POST   | `/bookings/:id/start`    | Provider             | Status booking   | Sudah ada           |
+| S4  | POST   | `/bookings/:id/complete` | Provider             | Status booking   | Sudah ada           |
+| S5  | POST   | `/bookings/:id/cancel`   | Customer, Provider   | Status booking   | Sudah ada           |
 | R1  | POST   | `/bookings/:id/review`   | Customer             | Review           | Proposed            |
 
 Semua path di bawah ditulis relatif terhadap `/api/v1`.
@@ -794,7 +794,7 @@ Error:
 | Requirement | FR-CUST-08, FR-PROV-07                                                               |
 | Layar       | Riwayat pesanan customer, dasbor pesanan provider                                    |
 
-Query: `status` (opsional, bisa koma: `requested,accepted`), `page`, `per_page`. Urut `scheduled_date` terbaru.
+Query: `status` (opsional, bisa koma: `requested,accepted`), `page`, `limit` (default 12, maks 50). Urut `scheduled_date` lalu `start_time` terbaru. `meta` berbentuk `{ page, limit, total_items, total_pages }`, sama dengan L1.
 
 Sukses `200`: array ringkas booking (tanpa riwayat status) + `meta`. Field kontak mengikuti access matrix.
 
@@ -864,7 +864,9 @@ Contoh sukses `200`, dilihat customer saat status `accepted`, mode `at_customer`
 }
 ```
 
-Error: `401 UNAUTHENTICATED`, `404 NOT_FOUND` (termasuk booking milik orang lain).
+Admin boleh melihat detail booking mana pun (hanya baca). Error: `401 UNAUTHENTICATED`, `404 NOT_FOUND` (termasuk booking milik orang lain dan id bukan UUID).
+
+**Status implementasi (BE-06):** kontak dan alamat lawan transaksi belum dibuka sama sekali; `customer.phone`, `provider.phone`, dan `provider.address_detail` selalu `null`, provider hanya melihat `location.area`, dan nama customer untuk provider selalu nama depan + inisial. Aturan buka-tutup di tabel access matrix di atas dikerjakan di BE-07. Customer pemilik dan admin melihat lokasi yang diisi customer sendiri. `can_review` selalu `false` sampai BE-08.
 
 ---
 
@@ -872,7 +874,9 @@ Error: `401 UNAUTHENTICATED`, `404 NOT_FOUND` (termasuk booking milik orang lain
 
 Setiap aksi di bawah memvalidasi status sekarang, peran, kepemilikan, dan status akun pemanggil, lalu menulis satu baris `booking_status_history` dalam satu transaksi database. Transisi yang tidak ada di tabel lifecycle data model ditolak `409 INVALID_TRANSITION`.
 
-Semua aksi mengembalikan `200` dengan objek booking terbaru (bentuk B3). Error umum untuk semua aksi: `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND`, `409 INVALID_TRANSITION`.
+Semua aksi mengembalikan `200` dengan objek booking terbaru (bentuk B3). Error umum untuk semua aksi: `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `403 FORBIDDEN` (pihak booking dengan peran yang tidak boleh melakukan aksi itu, mis. customer memanggil `accept`, atau admin), `404 NOT_FOUND`, `409 INVALID_TRANSITION`.
+
+Setiap aksi bisa dipanggil dengan `POST` (kontrak ini) maupun `PUT` (issue #11), mis. `PUT /bookings/:id/accept`. Status dibaca ulang dan dikunci (`SELECT … FOR UPDATE`) di dalam transaksi, jadi dua aksi bersamaan tidak bisa melompati state machine. Alasan `cancel` dari provider wajib minimal 10 karakter (sama dengan `reject`); dari customer opsional.
 
 | #   | Endpoint                      | Dari → Ke                      | Peran                                                    | Body                                              | Validasi khusus                                             | Requirement / layar                             |
 | --- | ----------------------------- | ------------------------------ | -------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------- |
