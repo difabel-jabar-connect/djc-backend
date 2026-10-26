@@ -8,7 +8,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const request = require('supertest');
 const createApp = require('../src/app');
-const { requireAuth, requireRole } = require('../src/middlewares/auth');
+const { requireAuth, requireRole, requireActiveUser } = require('../src/middlewares/auth');
 const errorHandler = require('../src/middlewares/errorHandler');
 const { signToken, signResetToken } = require('../src/utils/token');
 
@@ -316,6 +316,44 @@ test('requireRole menolak peran lain dengan 403 FORBIDDEN', async () => {
 
   const allowed = await request(app).get('/admin').set('Authorization', `Bearer ${adminToken}`);
   assert.equal(allowed.status, 200);
+});
+
+test('requireActiveUser: akun suspended hanya boleh membaca', async () => {
+  const users = fakeUsers();
+  const active = await seedUser(users);
+  const suspended = await seedUser(users, { email: 'sus@djc.test', status: 'suspended' });
+  const app = express();
+  const guard = [requireAuth, requireActiveUser({ users })];
+  app.get('/data', ...guard, (req, res) => res.json({ ok: true }));
+  app.post('/data', ...guard, (req, res) => res.json({ ok: true }));
+  app.use(errorHandler);
+  const bearer = (user) => `Bearer ${signToken(user).token}`;
+
+  const activeWrite = await request(app).post('/data').set('Authorization', bearer(active));
+  assert.equal(activeWrite.status, 200);
+
+  const suspendedWrite = await request(app).post('/data').set('Authorization', bearer(suspended));
+  assert.equal(suspendedWrite.status, 403);
+  assert.equal(suspendedWrite.body.error.code, 'ACCOUNT_SUSPENDED');
+
+  const suspendedRead = await request(app).get('/data').set('Authorization', bearer(suspended));
+  assert.equal(suspendedRead.status, 200);
+
+  const ghost = { id: randomUUID(), role: 'customer' };
+  const ghostWrite = await request(app).post('/data').set('Authorization', bearer(ghost));
+  assert.equal(ghostWrite.status, 401);
+  assert.equal(ghostWrite.body.error.code, 'UNAUTHENTICATED');
+});
+
+test('akun suspended tetap bisa logout', async () => {
+  const users = fakeUsers();
+  const suspended = await seedUser(users, { status: 'suspended' });
+
+  const res = await request(createApp({ users }))
+    .post('/api/v1/auth/logout')
+    .set('Authorization', `Bearer ${signToken(suspended).token}`);
+
+  assert.equal(res.status, 200);
 });
 
 test('lupa kata sandi mengirim tautan reset berisi token', async () => {

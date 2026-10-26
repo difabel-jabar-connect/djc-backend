@@ -82,7 +82,7 @@ STK-04 di `stack-comparison.md` menyerahkan kontrak autentikasi ke issue fondasi
 - Login mengembalikan JWT di **cookie `HttpOnly`** bernama `djc_token` (`SameSite=Lax`, `Secure` di production). Frontend memanggil API dengan `credentials: 'include'`.
 - Umur sesi 24 jam (NFR-SEC-02, `JWT_EXPIRES_IN=1d`) dan cookie-nya cookie sesi, hilang saat browser ditutup. Jika login dengan `remember: true` ("Ingat saya"), token berlaku 7 hari (`JWT_REMEMBER_EXPIRES_IN=7d`) dan cookie disimpan sampai waktu yang sama.
 - Header `Authorization: Bearer <token>` tetap diterima untuk Postman dan testing.
-- Payload JWT: `sub` (user id), `role`, `exp`. Status akun **dicek ulang ke database** pada setiap aksi tulis, sehingga suspend berlaku langsung.
+- Payload JWT: `sub` (user id), `role`, `exp`. Status akun **dicek ulang ke database** pada setiap aksi tulis (middleware `requireActiveUser`), sehingga suspend berlaku langsung.
 - Password di-hash dengan bcrypt, salt rounds 10 (NFR-SEC-01).
 
 Catatan untuk review Full-stack: frontend di Vercel dan API di Railway berbeda domain. Cookie lintas domain butuh `SameSite=None; Secure`, atau frontend memakai proxy/rewrite Vercel ke API. Pilihan final dicatat saat proof of deployment (SP1-10).
@@ -96,7 +96,7 @@ Catatan untuk review Full-stack: frontend di Vercel dan API di Railway berbeda d
 | Customer / Provider / Admin | Hanya peran tersebut                                                                 |
 | Pihak booking               | Customer atau provider pada booking yang sama, mengikuti access matrix di data model |
 
-Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data miliknya, tetapi semua `POST`, `PUT`, `PATCH`, `DELETE` ditolak dengan `403 ACCOUNT_SUSPENDED`.
+Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data miliknya, tetapi semua `POST`, `PUT`, `PATCH`, `DELETE` ditolak dengan `403 ACCOUNT_SUSPENDED` ("Akun Anda sedang dinonaktifkan. Anda hanya dapat melihat data."). Middleware `requireActiveUser` dipasang setelah `requireAuth` di setiap route tulis; logout tidak memakainya supaya akun suspended tetap bisa keluar.
 
 > **Perlu dicek SE:** `03-system-flow.md` bagian 2.1 menulis login akun suspended langsung ditolak 403, dan `04-user-stories.md` US-ADM-04 menulis "sesi token pengguna diblokir". Sebaliknya `data-model.md` (acuan implementasi) dan backlog SP1-05 menulis akun suspended tetap bisa login dan membaca, hanya aksi tulis yang ditolak. Kontrak ini mengikuti data model dan SP1-05.
 

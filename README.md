@@ -105,10 +105,12 @@ curl -b cookie.txt http://localhost:5000/api/v1/auth/me
 Router fitur lain melindungi endpoint dengan middleware dari `src/middlewares/auth.js`:
 
 ```js
-const { requireAuth, requireRole } = require('../middlewares/auth');
-router.post('/bookings', requireAuth, requireRole('customer'), createBooking);
+const { requireAuth, requireRole, requireActiveUser } = require('../middlewares/auth');
+router.post('/bookings', requireAuth, requireRole('customer'), requireActiveUser(), createBooking);
 // req.auth berisi { userId, role }
 ```
+
+`requireActiveUser()` menolak aksi tulis (POST/PUT/PATCH/DELETE) dari akun `suspended` dengan `403 ACCOUNT_SUSPENDED`; GET tetap boleh. Pasang di setiap route tulis.
 
 ## Perintah
 
@@ -188,7 +190,7 @@ djc-backend/
 │   │   ├── health.js          # GET /api/v1/health
 │   │   └── auth.js            # /api/v1/auth: register, login, logout, me
 │   ├── middlewares/
-│   │   ├── auth.js            # requireAuth, requireRole
+│   │   ├── auth.js            # requireAuth, requireRole, requireActiveUser
 │   │   ├── notFound.js        # 404 berformat standar
 │   │   └── errorHandler.js    # Error berformat standar
 │   ├── repositories/          # Query SQL per tabel (userRepository.js)

@@ -1,4 +1,5 @@
 const env = require('../config/env');
+const userRepository = require('../repositories/userRepository');
 const { ApiError } = require('../utils/response');
 const { COOKIE_NAME, verifyToken } = require('../utils/token');
 
@@ -47,4 +48,35 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { requireAuth, requireRole };
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Akun `suspended` hanya boleh membaca (API-03, SP1-05). Aksi tulis (POST/PUT/PATCH/DELETE)
+ * ditolak 403 ACCOUNT_SUSPENDED. Status dicek ulang ke database supaya suspend berlaku
+ * langsung tanpa menunggu token kedaluwarsa. Dipasang setelah requireAuth, mis.
+ * router.post('/bookings', requireAuth, requireActiveUser(), createBooking).
+ */
+function requireActiveUser({ users = userRepository } = {}) {
+  return async (req, res, next) => {
+    if (READ_METHODS.has(req.method)) return next();
+
+    const user = await users.findById(req.auth?.userId);
+    if (!user) {
+      logDenied(req, 401, req.auth?.role);
+      return next(new ApiError(401, 'UNAUTHENTICATED', 'Silakan masuk terlebih dahulu.'));
+    }
+    if (user.status === 'suspended') {
+      logDenied(req, 403, user.role);
+      return next(
+        new ApiError(
+          403,
+          'ACCOUNT_SUSPENDED',
+          'Akun Anda sedang dinonaktifkan. Anda hanya dapat melihat data.',
+        ),
+      );
+    }
+    return next();
+  };
+}
+
+module.exports = { requireAuth, requireRole, requireActiveUser };
