@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, dan profil provider P3, P5, P6.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, profil provider P3, P5, P6, serta upload foto dan portofolio P7, P8.
 
 ---
 
@@ -128,6 +128,10 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | P5  | PUT    | `/provider/profile`      | Provider             | Profil provider  | Sudah ada           |
 | P6  | GET    | `/provider/availability` | Provider             | Profil provider  | Sudah ada           |
 | P6  | PUT    | `/provider/availability` | Provider             | Profil provider  | Sudah ada           |
+| P7  | PUT    | `/provider/photo`        | Provider             | Profil provider  | Sudah ada           |
+| P8  | GET    | `/provider/portfolio`    | Provider             | Profil provider  | Sudah ada           |
+| P8  | POST   | `/provider/portfolio`    | Provider             | Profil provider  | Sudah ada           |
+| P8  | DELETE | /provider/portfolio/:id  | Provider             | Profil provider  | Sudah ada           |
 | P4  | GET    | `/providers/:id/reviews` | Publik               | Provider, Review | Proposed            |
 | B1  | POST   | `/bookings`              | Customer             | Booking          | Proposed            |
 | B2  | GET    | `/bookings`              | Customer, Provider   | Booking          | Proposed            |
@@ -520,7 +524,7 @@ Hanya layanan `is_active = true` yang dikirim. `public_lat`/`public_lng` adalah 
 | `lat`, `lng`          | number \| null  | Wajib dikirim bersamaan; -90..90 dan -180..180                   |
 | `service_radius_km`   | integer \| null | 1–500                                                            |
 
-Setiap kali `lat`/`lng` berubah, server menghitung `public_lat`/`public_lng` dengan membulatkan ke 2 desimal, mis. `-6.238321, 106.975612` → `-6.24, 106.98`. Provider `verified` tidak boleh mengosongkan `address_detail` atau koordinat (`400`), sesuai CHECK `provider_profiles_verified_complete_check`. Sukses `200`: profil lengkap terbaru (bentuk `GET`). Foto profil diunggah lewat endpoint Cloudinary (BE-04).
+Setiap kali `lat`/`lng` berubah, server menghitung `public_lat`/`public_lng` dengan membulatkan ke 2 desimal, mis. `-6.238321, 106.975612` → `-6.24, 106.98`. Provider `verified` tidak boleh mengosongkan `address_detail` atau koordinat (`400`), sesuai CHECK `provider_profiles_verified_complete_check`. Sukses `200`: profil lengkap terbaru (bentuk `GET`). Foto profil diunggah lewat P7.
 
 Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN` (bukan provider), `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND` (profil belum ada).
 
@@ -540,6 +544,43 @@ Jadwal mingguan provider (`0` = Minggu … `6` = Sabtu). `PUT` mengganti seluruh
 Aturan: jam berformat `HH:mm`, `end_time` > `start_time`, slot di hari yang sama tidak boleh tumpang tindih, maks 28 slot; daftar kosong berarti tidak ada jadwal. Sukses `200`: daftar slot terurut hari lalu jam (bentuk yang sama dipakai `availability` di P3).
 
 Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND`.
+
+### P7 `PUT /provider/photo`
+
+|             |                                                         |
+| ----------- | ------------------------------------------------------- |
+| Tujuan      | Provider mengunggah foto profil ke Cloudinary           |
+| Peran       | Provider (akun aktif, bukan `suspended`)                |
+| Requirement | FR-PROV-02, FR-PROV-05, NFR-ACC-03, NFR-PERF-02, SP1-08 |
+| Layar       | Dasbor provider, edit profil                            |
+
+Request JSON: `{ "image": "data:image/jpeg;base64,…", "image_alt": "Foto Deni tersenyum di bengkel" }`. Gambar dikirim sebagai data URI base64 (mis. hasil `FileReader.readAsDataURL` di frontend), bukan multipart. Batas body khusus endpoint upload 8 MB; endpoint lain tetap 1 MB.
+
+Aturan gambar: JPG, PNG, WebP, GIF, atau AVIF, maks 5 MB. `image_alt` wajib, 1–250 karakter setelah spasi di awal/akhir dibuang; kosong atau hanya spasi ditolak sebelum gambar dikirim ke Cloudinary. Cloudinary menyimpan gambar sebagai WebP, maks 1200 px, kualitas otomatis (target < 300 KB).
+
+Sukses `200`: `{ "data": { "photo_url": "https://res.cloudinary.com/…/1.webp", "photo_alt": "Foto Deni tersenyum di bengkel" } }`. `photo_url` dan `photo_alt` ikut tampil di P3.
+
+Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND` (profil belum ada), `503 SERVICE_UNAVAILABLE` ("Upload gambar belum diaktifkan." jika `CLOUDINARY_*` belum diisi, atau "Upload gambar gagal. Silakan coba lagi." jika Cloudinary menolak).
+
+### P8 `GET`/`POST /provider/portfolio` dan `DELETE /provider/portfolio/:id`
+
+Portofolio karya provider (`portfolio_items`). `GET` mengembalikan daftar milik provider sendiri, urut `sort_order`. `POST` mengunggah gambar ke Cloudinary lalu menyimpan karya di urutan terakhir:
+
+```json
+{
+  "image": "data:image/jpeg;base64,…",
+  "image_alt": "Kipas angin berdiri yang sudah diperbaiki di atas meja kerja",
+  "title": "Perbaikan kipas angin",
+  "description": "Ganti kapasitor dan bearing.",
+  "item_type": "work_result"
+}
+```
+
+Aturan gambar dan `image_alt` sama dengan P7. `title` 2–120 karakter, `description` opsional maks 500, `item_type` `work_result` atau `physical_product`. Sukses `201`: `{ "data": { "id", "title", "description", "item_type", "image_url", "image_alt", "sort_order" } }`. Karya tampil di `portfolio` pada P3.
+
+`DELETE` menghapus karya milik provider sendiri (`200 { "deleted": true }`); karya provider lain atau id yang tidak ada dapat `404`. Berkas di Cloudinary belum ikut dihapus.
+
+Error: sama dengan P7, ditambah `404 NOT_FOUND` untuk karya yang tidak ada.
 
 ### P4 `GET /providers/:id/reviews`
 
@@ -804,7 +845,7 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | Admin kategori                       | `POST /admin/categories`, `PATCH /admin/categories/:id`                                                              | SP1-06                |
 | Admin membuat akun mitra             | `POST /admin/providers`: akun provider + `provider_profiles` `pending`, wajib `alumni_reg_no` dan `city`             | API-04                |
-| Jadwal, layanan, portofolio provider | `/provider/availability`, `/provider/services`, `/provider/portfolio`                                                | FR-PROV-04–06, SP1-08 |
+| Jadwal, layanan, portofolio provider | `/provider/services` (jadwal sudah ada di P6, portofolio di P8)                                                      | FR-PROV-04–06, SP1-08 |
 | Admin verifikasi dan moderasi        | `/admin/providers/:id/verify`, `/admin/reviews/:id/hide`, `/admin/users/:id/suspend`                                 | FR-ADM-01–06          |
 | Email reset/verifikasi               | Reset sudah ada (A5–A6, SMTP atau tautan di terminal); penyedia email final dan verifikasi email menunggu STK-OPN-03 | –                     |
 | Payment sandbox                      | Stretch goal                                                                                                         | STR-01                |

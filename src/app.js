@@ -7,6 +7,7 @@ const db = require('./config/db');
 const userRepository = require('./repositories/userRepository');
 const providerRepository = require('./repositories/providerRepository');
 const defaultMailer = require('./services/mailer');
+const { createCloudinary } = require('./services/cloudinary');
 const createApiRouter = require('./routes');
 const notFound = require('./middlewares/notFound');
 const errorHandler = require('./middlewares/errorHandler');
@@ -17,6 +18,7 @@ function createApp({
   users = userRepository,
   providers = providerRepository,
   mailer = defaultMailer,
+  cloudinary = createCloudinary(),
   loginLimit,
   resetLimit,
 } = {}) {
@@ -32,10 +34,17 @@ function createApp({
       credentials: true,
     }),
   );
-  app.use(express.json({ limit: '1mb' }));
+  // Endpoint upload gambar memakai parser JSON sendiri dengan batas lebih besar
+  // (src/routes/providerMedia.js); endpoint lain tetap dibatasi 1 MB.
+  const jsonBody = express.json({ limit: '1mb' });
+  const uploadPaths = /^\/api\/v1\/provider\/(photo|portfolio)\/?$/;
+  app.use((req, res, next) => (uploadPaths.test(req.path) ? next() : jsonBody(req, res, next)));
   app.use(cookieParser());
 
-  app.use('/api/v1', createApiRouter({ pingDb, users, providers, mailer, loginLimit, resetLimit }));
+  app.use(
+    '/api/v1',
+    createApiRouter({ pingDb, users, providers, mailer, cloudinary, loginLimit, resetLimit }),
+  );
 
   app.use(notFound);
   app.use(errorHandler);

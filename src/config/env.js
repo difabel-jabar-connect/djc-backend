@@ -48,6 +48,13 @@ env.mail = {
 env.mail.secure = env.mail.port === 465;
 env.mail.enabled = Boolean(env.mail.host && env.mail.user && env.mail.pass);
 
+// Upload gambar ke Cloudinary (foto profil dan portofolio provider). Kosong = upload ditolak 503.
+env.cloudinary = {
+  cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
+  apiKey: process.env.CLOUDINARY_API_KEY || '',
+  apiSecret: process.env.CLOUDINARY_API_SECRET || '',
+};
+
 env.app = {
   // Alamat frontend untuk tautan di email, mis. tautan reset kata sandi.
   frontendUrl: (process.env.FRONTEND_URL || env.corsOrigins[0] || '').replace(/\/+$/, ''),

@@ -198,10 +198,66 @@ async function replaceAvailability(profileId, slots) {
   return listSlots(profileId);
 }
 
+async function updatePhoto(profileId, { url, alt }) {
+  await db
+    .getPool()
+    .query('UPDATE provider_profiles SET photo_url = ?, photo_alt = ? WHERE id = ?', [
+      url,
+      alt,
+      profileId,
+    ]);
+}
+
+const PORTFOLIO_COLUMNS = 'id, title, description, item_type, image_url, image_alt, sort_order';
+
+async function listPortfolio(profileId) {
+  const [rows] = await db.getPool().query(
+    `SELECT ${PORTFOLIO_COLUMNS} FROM portfolio_items
+       WHERE provider_id = ? ORDER BY sort_order, created_at`,
+    [profileId],
+  );
+  return rows;
+}
+
+/** Menambah karya portofolio di urutan paling akhir. */
+async function createPortfolioItem(
+  profileId,
+  { title, description, itemType, imageUrl, imageAlt },
+) {
+  const pool = db.getPool();
+  const id = randomUUID();
+  const [[{ next }]] = await pool.query(
+    'SELECT COALESCE(MAX(sort_order) + 1, 0) AS next FROM portfolio_items WHERE provider_id = ?',
+    [profileId],
+  );
+  await pool.query(
+    `INSERT INTO portfolio_items
+       (id, provider_id, title, description, item_type, image_url, image_alt, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, profileId, title, description, itemType, imageUrl, imageAlt, next],
+  );
+  const [rows] = await pool.query(`SELECT ${PORTFOLIO_COLUMNS} FROM portfolio_items WHERE id = ?`, [
+    id,
+  ]);
+  return rows[0];
+}
+
+/** Menghapus karya milik provider ini saja. Mengembalikan true jika ada yang terhapus. */
+async function deletePortfolioItem(profileId, itemId) {
+  const [result] = await db
+    .getPool()
+    .query('DELETE FROM portfolio_items WHERE id = ? AND provider_id = ?', [itemId, profileId]);
+  return result.affectedRows > 0;
+}
+
 module.exports = {
   findPublicById,
   findOwnByUserId,
   updateProfile,
   listAvailability,
   replaceAvailability,
+  updatePhoto,
+  listPortfolio,
+  createPortfolioItem,
+  deletePortfolioItem,
 };

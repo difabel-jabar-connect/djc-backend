@@ -141,8 +141,21 @@ DB_TEST=1 npm test            # PowerShell: $env:DB_TEST=1; npm test
 | `GET /api/v1/providers/:id`               | Profil publik provider verified (hanya koordinat kasar, tanpa alamat) |
 | `GET`/`PUT /api/v1/provider/profile`      | Provider melihat dan mengubah profilnya sendiri, termasuk data privat |
 | `GET`/`PUT /api/v1/provider/availability` | Jadwal mingguan provider; `PUT` mengganti seluruh jadwal              |
+| `PUT /api/v1/provider/photo`              | Unggah foto profil ke Cloudinary (wajib `image_alt`)                  |
+| `GET`/`POST /api/v1/provider/portfolio`   | Daftar dan tambah karya portofolio (gambar ke Cloudinary)             |
+| `DELETE /api/v1/provider/portfolio/:id`   | Hapus karya portofolio milik sendiri                                  |
 
 Saat provider menyimpan `lat`/`lng`, server menyimpan `public_lat`/`public_lng` = dibulatkan 2 desimal (sekitar 1,1 km), mis. `-6.238321, 106.975612` → `-6.24, 106.98` (`src/utils/location.js`). Endpoint publik tidak pernah mengirim koordinat asli, alamat, nomor alumni, atau jenis disabilitas. Coba dengan akun demo `deni@djc.test` / `Demo12345`.
+
+### Upload gambar (Cloudinary)
+
+Gambar dikirim sebagai data URI base64 di body JSON (`{ "image": "data:image/jpeg;base64,…", "image_alt": "…" }`), maks 5 MB, JPG/PNG/WebP/GIF/AVIF. Teks alternatif (`image_alt`) wajib; kosong atau hanya spasi ditolak `400`. Cloudinary menyimpan gambar sebagai WebP, maks 1200 px, kualitas otomatis.
+
+1. Daftar gratis di cloudinary.com.
+2. Buka Dashboard (Product Environment), salin **Cloud name**, **API Key**, dan **API Secret**.
+3. Isi `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` di `.env`, lalu restart backend.
+
+Tanpa ketiga nilai itu, endpoint upload menjawab `503` ("Upload gambar belum diaktifkan.").
 
 ## Database: migrasi dan data dummy
 
@@ -199,7 +212,8 @@ djc-backend/
 │   │   ├── index.js           # Router /api/v1
 │   │   ├── health.js          # GET /api/v1/health
 │   │   ├── auth.js            # /api/v1/auth: register, login, logout, me
-│   │   └── providers.js       # /api/v1/providers/:id (publik), /api/v1/provider/* (provider)
+│   │   ├── providers.js       # /api/v1/providers/:id (publik), /api/v1/provider/* (provider)
+│   │   └── providerMedia.js   # Upload foto profil dan portofolio (Cloudinary)
 │   ├── middlewares/
 │   │   ├── auth.js            # requireAuth, requireRole, requireActiveUser
 │   │   ├── notFound.js        # 404 berformat standar
