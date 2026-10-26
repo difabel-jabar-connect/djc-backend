@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health` dan auth A1–A6.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, dan profil provider P3, P5, P6.
 
 ---
 
@@ -123,7 +123,11 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | C1  | GET    | `/categories`            | Publik               | Search           | Proposed            |
 | P1  | GET    | `/providers`             | Publik               | Search           | Proposed            |
 | P2  | GET    | `/providers/map`         | Publik               | Location         | Proposed            |
-| P3  | GET    | `/providers/:id`         | Publik               | Provider         | Proposed            |
+| P3  | GET    | `/providers/:id`         | Publik               | Provider         | Sudah ada           |
+| P5  | GET    | `/provider/profile`      | Provider             | Profil provider  | Sudah ada           |
+| P5  | PUT    | `/provider/profile`      | Provider             | Profil provider  | Sudah ada           |
+| P6  | GET    | `/provider/availability` | Provider             | Profil provider  | Sudah ada           |
+| P6  | PUT    | `/provider/availability` | Provider             | Profil provider  | Sudah ada           |
 | P4  | GET    | `/providers/:id/reviews` | Publik               | Provider, Review | Proposed            |
 | B1  | POST   | `/bookings`              | Customer             | Booking          | Proposed            |
 | B2  | GET    | `/bookings`              | Customer, Provider   | Booking          | Proposed            |
@@ -488,7 +492,54 @@ Sukses `200`:
 }
 ```
 
-Hanya layanan `is_active = true` yang dikirim. Error: `404 NOT_FOUND` jika provider tidak ada, belum verified, atau suspended.
+Hanya layanan `is_active = true` yang dikirim. `public_lat`/`public_lng` adalah koordinat asli yang dibulatkan 2 desimal (sekitar 1,1 km); `lat`, `lng`, `address_detail`, `alumni_reg_no`, dan `disability_type` tidak pernah dikirim. Error: `404 NOT_FOUND` jika provider tidak ada, belum verified, atau suspended.
+
+### P5 `GET /provider/profile` dan `PUT /provider/profile`
+
+|             |                                                      |
+| ----------- | ---------------------------------------------------- |
+| Tujuan      | Provider melihat dan mengubah profilnya sendiri      |
+| Peran       | Provider (akun aktif untuk `PUT`, bukan `suspended`) |
+| Requirement | FR-PROV-02, FR-PROV-03, SP1-07                       |
+| Layar       | Dasbor provider, edit profil                         |
+
+`GET` mengembalikan profil lengkap milik provider sendiri, termasuk data privat (`address_detail`, `lat`, `lng`, `disability_type`, `alumni_reg_no`, `phone`) dan `verification_status`.
+
+`PUT` menerima sebagian field (minimal satu):
+
+| Field                 | Tipe            | Aturan                                                           |
+| --------------------- | --------------- | ---------------------------------------------------------------- |
+| `display_name`        | string          | 2–100 karakter                                                   |
+| `bio`                 | string \| null  | Maks 500 karakter                                                |
+| `communication_prefs` | array           | Isi dari `chat`, `call`, `video_call`, `bisindo`, tanpa duplikat |
+| `disability_type`     | string \| null  | Maks 50 karakter, privat                                         |
+| `phone`               | string          | Format `+62`, disimpan di `users.phone`                          |
+| `address_detail`      | string \| null  | Maks 500 karakter, privat                                        |
+| `city`                | string          | 2–50 karakter                                                    |
+| `district`            | string \| null  | Maks 50 karakter                                                 |
+| `lat`, `lng`          | number \| null  | Wajib dikirim bersamaan; -90..90 dan -180..180                   |
+| `service_radius_km`   | integer \| null | 1–500                                                            |
+
+Setiap kali `lat`/`lng` berubah, server menghitung `public_lat`/`public_lng` dengan membulatkan ke 2 desimal, mis. `-6.238321, 106.975612` → `-6.24, 106.98`. Provider `verified` tidak boleh mengosongkan `address_detail` atau koordinat (`400`), sesuai CHECK `provider_profiles_verified_complete_check`. Sukses `200`: profil lengkap terbaru (bentuk `GET`). Foto profil diunggah lewat endpoint Cloudinary (BE-04).
+
+Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN` (bukan provider), `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND` (profil belum ada).
+
+### P6 `GET /provider/availability` dan `PUT /provider/availability`
+
+Jadwal mingguan provider (`0` = Minggu … `6` = Sabtu). `PUT` mengganti seluruh jadwal sekaligus:
+
+```json
+{
+  "availability": [
+    { "day_of_week": 1, "start_time": "08:00", "end_time": "16:00" },
+    { "day_of_week": 6, "start_time": "09:00", "end_time": "12:00" }
+  ]
+}
+```
+
+Aturan: jam berformat `HH:mm`, `end_time` > `start_time`, slot di hari yang sama tidak boleh tumpang tindih, maks 28 slot; daftar kosong berarti tidak ada jadwal. Sukses `200`: daftar slot terurut hari lalu jam (bentuk yang sama dipakai `availability` di P3).
+
+Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND`.
 
 ### P4 `GET /providers/:id/reviews`
 
@@ -753,7 +804,6 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | Admin kategori                       | `POST /admin/categories`, `PATCH /admin/categories/:id`                                                              | SP1-06                |
 | Admin membuat akun mitra             | `POST /admin/providers`: akun provider + `provider_profiles` `pending`, wajib `alumni_reg_no` dan `city`             | API-04                |
-| Profil provider                      | `GET`/`PUT /provider/profile`, `PUT /provider/location`                                                              | SP1-07                |
 | Jadwal, layanan, portofolio provider | `/provider/availability`, `/provider/services`, `/provider/portfolio`                                                | FR-PROV-04–06, SP1-08 |
 | Admin verifikasi dan moderasi        | `/admin/providers/:id/verify`, `/admin/reviews/:id/hide`, `/admin/users/:id/suspend`                                 | FR-ADM-01–06          |
 | Email reset/verifikasi               | Reset sudah ada (A5–A6, SMTP atau tautan di terminal); penyedia email final dan verifikasi email menunggu STK-OPN-03 | –                     |

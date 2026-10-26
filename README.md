@@ -134,6 +134,16 @@ Tes yang memakai MySQL sungguhan (koneksi, skema, seeder, auth) ikut dijalankan 
 DB_TEST=1 npm test            # PowerShell: $env:DB_TEST=1; npm test
 ```
 
+## Profil provider
+
+| Endpoint                                  | Fungsi                                                                |
+| ----------------------------------------- | --------------------------------------------------------------------- |
+| `GET /api/v1/providers/:id`               | Profil publik provider verified (hanya koordinat kasar, tanpa alamat) |
+| `GET`/`PUT /api/v1/provider/profile`      | Provider melihat dan mengubah profilnya sendiri, termasuk data privat |
+| `GET`/`PUT /api/v1/provider/availability` | Jadwal mingguan provider; `PUT` mengganti seluruh jadwal              |
+
+Saat provider menyimpan `lat`/`lng`, server menyimpan `public_lat`/`public_lng` = dibulatkan 2 desimal (sekitar 1,1 km), mis. `-6.238321, 106.975612` → `-6.24, 106.98` (`src/utils/location.js`). Endpoint publik tidak pernah mengirim koordinat asli, alamat, nomor alumni, atau jenis disabilitas. Coba dengan akun demo `deni@djc.test` / `Demo12345`.
+
 ## Database: migrasi dan data dummy
 
 Skema 12 tabel mengikuti `docs/technical/data-model.md` di repository dokumentasi (SP1-02): UUID `CHAR(36)`, waktu `DATETIME(6)` UTC, uang `BIGINT` rupiah, dan semua CHECK constraint. Satu file migrasi per tabel di `db/migrations/`.
@@ -188,12 +198,13 @@ djc-backend/
 │   ├── routes/
 │   │   ├── index.js           # Router /api/v1
 │   │   ├── health.js          # GET /api/v1/health
-│   │   └── auth.js            # /api/v1/auth: register, login, logout, me
+│   │   ├── auth.js            # /api/v1/auth: register, login, logout, me
+│   │   └── providers.js       # /api/v1/providers/:id (publik), /api/v1/provider/* (provider)
 │   ├── middlewares/
 │   │   ├── auth.js            # requireAuth, requireRole, requireActiveUser
 │   │   ├── notFound.js        # 404 berformat standar
 │   │   └── errorHandler.js    # Error berformat standar
-│   ├── repositories/          # Query SQL per tabel (userRepository.js)
+│   ├── repositories/          # Query SQL per tabel (userRepository.js, providerRepository.js)
 │   ├── utils/
 │   │   ├── response.js        # sendSuccess, ApiError
 │   │   ├── token.js           # JWT dan cookie djc_token

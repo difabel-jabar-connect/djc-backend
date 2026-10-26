@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const env = require('./config/env');
 const db = require('./config/db');
 const userRepository = require('./repositories/userRepository');
+const providerRepository = require('./repositories/providerRepository');
 const defaultMailer = require('./services/mailer');
 const createApiRouter = require('./routes');
 const notFound = require('./middlewares/notFound');
@@ -14,6 +15,7 @@ const errorHandler = require('./middlewares/errorHandler');
 function createApp({
   pingDb = db.ping,
   users = userRepository,
+  providers = providerRepository,
   mailer = defaultMailer,
   loginLimit,
   resetLimit,
@@ -33,7 +35,7 @@ function createApp({
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
-  app.use('/api/v1', createApiRouter({ pingDb, users, mailer, loginLimit, resetLimit }));
+  app.use('/api/v1', createApiRouter({ pingDb, users, providers, mailer, loginLimit, resetLimit }));
 
   app.use(notFound);
   app.use(errorHandler);
