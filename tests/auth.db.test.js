@@ -32,7 +32,7 @@ test(
 
     const customer = await request(app).post('/api/v1/auth/register').send({
       role: 'customer',
-      full_name: 'Uji Pelanggan',
+      name: 'Uji Pelanggan',
       email: customerEmail.toUpperCase(),
       phone: '+6281299990001',
       password: 'RahasiaUji1',
@@ -42,24 +42,22 @@ test(
 
     const duplicate = await request(app).post('/api/v1/auth/register').send({
       role: 'customer',
-      full_name: 'Uji Ganda',
+      name: 'Uji Ganda',
       email: customerEmail,
       phone: '+6281299990002',
       password: 'RahasiaUji1',
     });
     assert.equal(duplicate.status, 409);
 
-    const provider = await request(app)
-      .post('/api/v1/auth/register')
-      .send({
-        role: 'provider',
-        full_name: 'Uji Penyedia',
-        email: providerEmail,
-        phone: '+6281299990003',
-        password: 'RahasiaUji1',
-        alumni_reg_no: `UJI-${suffix}`,
-        city: 'Kota Bekasi',
-      });
+    const provider = await request(app).post('/api/v1/auth/register').send({
+      role: 'provider',
+      name: 'Uji Penyedia',
+      email: providerEmail,
+      phone: '+6281299990003',
+      password: 'RahasiaUji1',
+      city: 'Kota Bekasi',
+      category: 'kebersihan',
+    });
     assert.equal(provider.status, 201);
 
     const profile = await knex('provider_profiles')
@@ -68,6 +66,7 @@ test(
     assert.equal(profile.verification_status, 'pending');
     assert.equal(profile.display_name, 'Uji Penyedia');
     assert.equal(profile.city, 'Kota Bekasi');
+    assert.equal(profile.alumni_reg_no, null, 'nomor alumni dilengkapi sebelum verifikasi');
 
     const stored = await knex('users').where({ email: customerEmail }).first();
     assert.notEqual(stored.password_hash, 'RahasiaUji1');
@@ -83,6 +82,7 @@ test(
       .post('/api/v1/auth/login')
       .send({ email: providerEmail, password: 'RahasiaUji1' });
     assert.equal(login.status, 200);
+    assert.equal(login.body.data.user.name, 'Uji Penyedia');
 
     const me = await agent.get('/api/v1/auth/me');
     assert.equal(me.status, 200);

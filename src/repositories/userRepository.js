@@ -44,7 +44,8 @@ async function createUser({ role, fullName, email, phone, passwordHash, provider
       await connection.query(
         `INSERT INTO provider_profiles (id, user_id, display_name, alumni_reg_no, city)
          VALUES (?, ?, ?, ?, ?)`,
-        [randomUUID(), user.id, fullName, provider.alumniRegNo, provider.city],
+        // Nomor alumni boleh kosong saat daftar (NULL), dilengkapi sebelum verifikasi.
+        [randomUUID(), user.id, fullName, provider.alumniRegNo || null, provider.city],
       );
     }
     await connection.commit();

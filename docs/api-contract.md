@@ -177,27 +177,30 @@ Database mati `503`:
 
 Request body:
 
-| Field           | Tipe                     | Wajib         | Aturan                                     |
-| --------------- | ------------------------ | ------------- | ------------------------------------------ |
-| `role`          | `customer` \| `provider` | ya            | Admin tidak bisa daftar lewat endpoint ini |
-| `full_name`     | string                   | ya            | 2–100 karakter                             |
-| `email`         | string                   | ya            | Format email, unik, disimpan huruf kecil   |
-| `phone`         | string                   | ya            | Format `+62` diikuti 8–13 digit            |
-| `password`      | string                   | ya            | 8–72 karakter (batas bcrypt)               |
-| `alumni_reg_no` | string                   | jika provider | Nomor alumni UPTD PPSGHD, maks 50 karakter |
-| `city`          | string                   | jika provider | Kota/kabupaten domisili, maks 50 karakter  |
+| Field           | Tipe                     | Wajib         | Aturan                                                                                |
+| --------------- | ------------------------ | ------------- | ------------------------------------------------------------------------------------- |
+| `role`          | `customer` \| `provider` | ya            | Admin tidak bisa daftar lewat endpoint ini                                            |
+| `name`          | string                   | ya            | Nama lengkap, 2–100 karakter (kolom `users.full_name`)                                |
+| `email`         | string                   | ya            | Format email, unik, disimpan huruf kecil                                              |
+| `phone`         | string                   | ya            | Format `+62` diikuti 8–13 digit                                                       |
+| `password`      | string                   | ya            | 8–72 karakter (batas bcrypt)                                                          |
+| `alumni_reg_no` | string                   | tidak         | Nomor alumni UPTD PPSGHD, maks 50 karakter; wajib sebelum provider diverifikasi admin |
+| `city`          | string                   | jika provider | Kota/kabupaten domisili, maks 50 karakter                                             |
+| `category`      | string                   | tidak         | Slug kategori dari form Mitra, maks 60 karakter; diterima tetapi belum disimpan       |
 
 ```json
 {
   "role": "customer",
-  "full_name": "Budi Santoso",
+  "name": "Budi Santoso",
   "email": "budi@example.com",
   "phone": "+6281234567890",
   "password": "rahasia123"
 }
 ```
 
-Field lain diabaikan (mis. `category` dari form mitra; layanan dan kategori diatur di profil provider). `city` wajib karena `provider_profiles.city` NOT NULL.
+Nama field mengikuti form Daftar di frontend: request dan semua respons auth memakai `name`, yang disimpan di kolom `users.full_name`. `category` dari form Mitra belum disimpan karena kategori dipilih saat provider membuat layanan (SP2-07); field lain diabaikan. `city` wajib karena `provider_profiles.city` NOT NULL.
+
+Form Mitra belum punya isian nomor alumni, jadi `alumni_reg_no` opsional saat daftar dan disimpan `NULL`. Provider tanpa nomor alumni tetap `pending`; CHECK `provider_profiles_alumni_before_verified_check` menolak verifikasi sebelum nomor itu dilengkapi lewat profil provider (SP1-07). Ini menyimpang dari `data-model.md` (`alumni_reg_no` NOT NULL).
 
 Registrasi tidak langsung login; frontend mengarahkan ke `/login` dengan pesan sukses (US-CUST-01).
 
@@ -209,7 +212,7 @@ Sukses `201`:
     "user": {
       "id": "0b6c…",
       "role": "customer",
-      "full_name": "Budi Santoso",
+      "name": "Budi Santoso",
       "email": "budi@example.com",
       "phone": "+6281234567890",
       "status": "active"
@@ -245,7 +248,7 @@ Sukses `200` + `Set-Cookie: djc_token=…; HttpOnly`:
     "user": {
       "id": "0b6c…",
       "role": "customer",
-      "full_name": "Budi Santoso",
+      "name": "Budi Santoso",
       "email": "budi@example.com",
       "phone": "+6281234567890",
       "status": "active"
@@ -282,7 +285,7 @@ Sukses `200`:
     "user": {
       "id": "0b6c…",
       "role": "provider",
-      "full_name": "Deni Setiawan",
+      "name": "Deni Setiawan",
       "email": "deni@example.com",
       "phone": "+62…",
       "status": "active"

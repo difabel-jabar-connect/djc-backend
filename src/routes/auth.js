@@ -27,10 +27,11 @@ const password = z
   .min(8, 'Kata sandi minimal 8 karakter.')
   .max(72, 'Kata sandi maksimal 72 karakter.');
 
+// Field request mengikuti form Daftar di frontend: `name` disimpan ke kolom users.full_name.
 const registerSchema = z
   .object({
     role: z.enum(['customer', 'provider'], 'Peran harus customer atau provider.'),
-    full_name: z
+    name: z
       .string('Nama lengkap wajib diisi.')
       .trim()
       .min(2, 'Nama lengkap minimal 2 karakter.')
@@ -41,19 +42,16 @@ const registerSchema = z
       .trim()
       .regex(/^\+62\d{8,13}$/, 'Nomor telepon harus diawali +62, contoh +6281234567890.'),
     password,
+    // Opsional saat daftar (form Mitra belum punya isiannya); wajib sebelum provider
+    // diverifikasi admin (CHECK provider_profiles_alumni_before_verified_check).
     alumni_reg_no: z.string().trim().max(50, 'Nomor alumni maksimal 50 karakter.').optional(),
     city: z.string().trim().max(50, 'Kota maksimal 50 karakter.').optional(),
+    // Dikirim form Mitra tetapi belum disimpan: kategori dipilih saat provider membuat
+    // layanan (SP2-07).
+    category: z.string().trim().max(60, 'Kategori maksimal 60 karakter.').optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.role !== 'provider') return;
-    if (!data.alumni_reg_no) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['alumni_reg_no'],
-        message: 'Nomor alumni UPTD PPSGHD wajib diisi untuk penyedia jasa.',
-      });
-    }
-    if (!data.city) {
+    if (data.role === 'provider' && !data.city) {
       ctx.addIssue({
         code: 'custom',
         path: ['city'],
@@ -75,12 +73,15 @@ const resetPasswordSchema = z.object({
   password,
 });
 
-/** Data akun yang aman dikirim ke pemiliknya sendiri. password_hash tidak pernah dikirim. */
+/**
+ * Data akun yang aman dikirim ke pemiliknya sendiri. password_hash tidak pernah dikirim.
+ * `name` diambil dari kolom full_name, sesuai yang dibaca frontend.
+ */
 function toAuthUser(user) {
   return {
     id: user.id,
     role: user.role,
-    full_name: user.full_name,
+    name: user.full_name,
     email: user.email,
     phone: user.phone,
     status: user.status,
@@ -141,7 +142,7 @@ function createAuthRouter({ users, mailer, loginLimit = 10, resetLimit = 5 }) {
     try {
       user = await users.createUser({
         role: body.role,
-        fullName: body.full_name,
+        fullName: body.name,
         email: body.email,
         phone: body.phone,
         passwordHash,

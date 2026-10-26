@@ -81,7 +81,7 @@ async function seedUser(users, overrides = {}) {
 
 const customer = {
   role: 'customer',
-  full_name: 'Budi Santoso',
+  name: 'Budi Santoso',
   email: 'Budi@Contoh.id ',
   phone: '+6281234567890',
   password: 'rahasia123',
@@ -106,7 +106,7 @@ test('register customer mengembalikan 201 tanpa password_hash', async () => {
   assert.ok(await bcrypt.compare('rahasia123', stored.password_hash));
 });
 
-test('register provider membuat profil pending dan wajib nomor alumni + kota', async () => {
+test('register provider membuat profil pending dan wajib kota', async () => {
   const users = fakeUsers();
   const app = createApp({ users });
 
@@ -114,10 +114,10 @@ test('register provider membuat profil pending dan wajib nomor alumni + kota', a
     .post('/api/v1/auth/register')
     .send({ ...customer, role: 'provider' });
   assert.equal(missing.status, 400);
-  assert.deepEqual(missing.body.error.details.map((d) => d.field).sort(), [
-    'alumni_reg_no',
-    'city',
-  ]);
+  assert.deepEqual(
+    missing.body.error.details.map((d) => d.field),
+    ['city'],
+  );
 
   const res = await request(app)
     .post('/api/v1/auth/register')
@@ -126,18 +126,40 @@ test('register provider membuat profil pending dan wajib nomor alumni + kota', a
   const profile = users.profiles.get(res.body.data.user.id);
   assert.equal(profile.verification_status, 'pending');
   assert.equal(profile.city, 'Kota Bandung');
+  assert.equal(profile.alumniRegNo, 'PPSGHD-001');
+});
+
+test('register Mitra dari form frontend: tanpa nomor alumni, dengan kategori', async () => {
+  const users = fakeUsers();
+
+  const res = await request(createApp({ users }))
+    .post('/api/v1/auth/register')
+    .send({
+      ...customer,
+      name: 'Deni Setiawan',
+      email: 'deni@contoh.id',
+      role: 'provider',
+      city: 'Kota Bekasi',
+      category: 'kebersihan',
+    });
+
+  assert.equal(res.status, 201);
+  assert.equal(res.body.data.user.name, 'Deni Setiawan');
+  const profile = users.profiles.get(res.body.data.user.id);
+  assert.equal(profile.verification_status, 'pending');
+  assert.equal(profile.alumniRegNo, undefined, 'nomor alumni dilengkapi sebelum verifikasi');
 });
 
 test('register menolak data tidak valid dengan detail per field', async () => {
   const res = await request(createApp({ users: fakeUsers() }))
     .post('/api/v1/auth/register')
-    .send({ role: 'admin', full_name: 'B', email: 'bukan-email', phone: '0812', password: '123' });
+    .send({ role: 'admin', name: 'B', email: 'bukan-email', phone: '0812', password: '123' });
 
   assert.equal(res.status, 400);
   assert.equal(res.body.error.code, 'VALIDATION_ERROR');
   assert.deepEqual(res.body.error.details.map((d) => d.field).sort(), [
     'email',
-    'full_name',
+    'name',
     'password',
     'phone',
     'role',
@@ -163,7 +185,7 @@ test('login berhasil memasang cookie HttpOnly dan mengembalikan token', async ()
     .send({ email: 'BUDI@djc.test', password: 'Demo12345' });
 
   assert.equal(res.status, 200);
-  assert.equal(res.body.data.user.full_name, 'Budi Santoso');
+  assert.equal(res.body.data.user.name, 'Budi Santoso');
   assert.equal(typeof res.body.data.token, 'string');
   const cookie = tokenCookie(res);
   assert.match(cookie, /HttpOnly/);
