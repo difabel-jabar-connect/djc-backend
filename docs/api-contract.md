@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, profil provider P3, P5, P6, serta upload foto dan portofolio P7, P8.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, kategori C1–C3, profil provider P3, P5, P6, serta upload foto dan portofolio P7, P8.
 
 ---
 
@@ -120,7 +120,9 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | A4  | GET    | `/auth/me`               | Login                | Akun             | Sudah ada           |
 | A5  | POST   | `/auth/password/forgot`  | Publik               | Akun             | Sudah ada           |
 | A6  | POST   | `/auth/password/reset`   | Publik               | Akun             | Sudah ada           |
-| C1  | GET    | `/categories`            | Publik               | Search           | Proposed            |
+| C1  | GET    | `/categories`            | Publik               | Search           | Sudah ada           |
+| C2  | POST   | `/admin/categories`      | Admin                | Kelola kategori  | Sudah ada           |
+| C3  | PUT    | `/admin/categories/:id`  | Admin                | Kelola kategori  | Sudah ada           |
 | P1  | GET    | `/providers`             | Publik               | Search           | Proposed            |
 | P2  | GET    | `/providers/map`         | Publik               | Location         | Proposed            |
 | P3  | GET    | `/providers/:id`         | Publik               | Provider         | Sudah ada           |
@@ -339,7 +341,7 @@ Error: `400 VALIDATION_ERROR`, `410 TOKEN_EXPIRED` ("Tautan reset sudah tidak be
 | Requirement | FR-CUST-02, FR-ADM-03, SP1-06                                     |
 | Layar       | Homepage, `/services`, peta                                       |
 
-Hanya kategori `is_active = true`, urut `sort_order`.
+Hanya kategori `is_active = true`, urut `sort_order` lalu `name`. Tidak perlu token.
 
 Sukses `200`:
 
@@ -358,6 +360,47 @@ Sukses `200`:
 ```
 
 Error: tidak ada selain `500`.
+
+### C2 `POST /admin/categories`
+
+|             |                                       |
+| ----------- | ------------------------------------- |
+| Tujuan      | Admin menambah kategori layanan       |
+| Peran       | Admin (akun aktif, bukan `suspended`) |
+| Requirement | FR-ADM-03, SP1-06                     |
+| Layar       | Dasbor admin, tabel kategori          |
+
+Request body:
+
+| Field        | Tipe    | Wajib | Aturan                                                                          |
+| ------------ | ------- | ----- | ------------------------------------------------------------------------------- |
+| `name`       | string  | ya    | 2–50 karakter, unik tanpa beda huruf besar/kecil                                |
+| `slug`       | string  | tidak | Huruf kecil, angka, tanda hubung, maks 60, unik. Jika kosong dibuat dari `name` |
+| `icon`       | string  | tidak | Nama ikon, maks 50, boleh `null`                                                |
+| `sort_order` | integer | tidak | 0–32767, default `0`                                                            |
+| `is_active`  | boolean | tidak | Default `true`                                                                  |
+
+```json
+{ "name": "Pijat & Refleksi", "icon": "spa", "sort_order": 9 }
+```
+
+Sukses `201`: objek kategori lengkap, termasuk `is_active`, mis. `{ "data": { "id": "…", "name": "Pijat & Refleksi", "slug": "pijat-refleksi", "icon": "spa", "sort_order": 9, "is_active": true } }`.
+
+Aksi dicatat ke `admin_actions` (`create_category`, `target_type = category`) dalam transaksi yang sama.
+
+Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN` (bukan admin), `403 ACCOUNT_SUSPENDED`, `409 CONFLICT` ("Kategori dengan nama atau slug ini sudah ada.").
+
+### C3 `PUT /admin/categories/:id`
+
+|             |                                                            |
+| ----------- | ---------------------------------------------------------- |
+| Tujuan      | Admin mengubah kategori atau mengaktifkan/menonaktifkannya |
+| Peran       | Admin (akun aktif, bukan `suspended`)                      |
+| Requirement | FR-ADM-03, SP1-06                                          |
+
+Body berisi field C2 yang ingin diubah saja (minimal satu); slug tidak ikut berubah saat nama diganti kecuali dikirim. `{ "is_active": false }` menyembunyikan kategori dari C1. Sukses `200`: objek kategori terbaru. Aksi dicatat sebagai `update_category` beserta kolom yang diubah.
+
+Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND`, `409 CONFLICT`.
 
 ---
 
@@ -843,7 +886,6 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 
 | Area                                 | Endpoint rencana                                                                                                     | Issue/backlog         |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| Admin kategori                       | `POST /admin/categories`, `PATCH /admin/categories/:id`                                                              | SP1-06                |
 | Admin membuat akun mitra             | `POST /admin/providers`: akun provider + `provider_profiles` `pending`, wajib `alumni_reg_no` dan `city`             | API-04                |
 | Jadwal, layanan, portofolio provider | `/provider/services` (jadwal sudah ada di P6, portofolio di P8)                                                      | FR-PROV-04–06, SP1-08 |
 | Admin verifikasi dan moderasi        | `/admin/providers/:id/verify`, `/admin/reviews/:id/hide`, `/admin/users/:id/suspend`                                 | FR-ADM-01–06          |

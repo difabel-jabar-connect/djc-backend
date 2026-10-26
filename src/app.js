@@ -6,6 +6,7 @@ const env = require('./config/env');
 const db = require('./config/db');
 const userRepository = require('./repositories/userRepository');
 const providerRepository = require('./repositories/providerRepository');
+const categoryRepository = require('./repositories/categoryRepository');
 const defaultMailer = require('./services/mailer');
 const { createCloudinary } = require('./services/cloudinary');
 const createApiRouter = require('./routes');
@@ -17,6 +18,7 @@ function createApp({
   pingDb = db.ping,
   users = userRepository,
   providers = providerRepository,
+  categories = categoryRepository,
   mailer = defaultMailer,
   cloudinary = createCloudinary(),
   loginLimit,
@@ -43,7 +45,16 @@ function createApp({
 
   app.use(
     '/api/v1',
-    createApiRouter({ pingDb, users, providers, mailer, cloudinary, loginLimit, resetLimit }),
+    createApiRouter({
+      pingDb,
+      users,
+      providers,
+      categories,
+      mailer,
+      cloudinary,
+      loginLimit,
+      resetLimit,
+    }),
   );
 
   app.use(notFound);

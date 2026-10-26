@@ -2,7 +2,7 @@
 
 REST API Difabel Jabar Connect, marketplace jasa berbasis lokasi bagi alumni penyandang disabilitas di Jawa Barat. Node.js + Express dengan database MySQL 8, di-deploy ke Railway, sesuai keputusan stack Week 1 (`docs/project-management/meeting-notes/2026-10-04-week-1-decisions.md` dan `docs/technical/stack-comparison.md` di repository dokumentasi [deonaja/difabel-jabar-connect](https://github.com/deonaja/difabel-jabar-connect)).
 
-Status: repository disiapkan melalui deonaja/difabel-jabar-connect#13; fondasi Express/MySQL dan API contract ditambahkan melalui deonaja/difabel-jabar-connect#15. Yang sudah ada: `GET /api/v1/health` dan auth (register, login, logout, me); endpoint fitur mengikuti [`docs/api-contract.md`](docs/api-contract.md).
+Status: repository disiapkan melalui deonaja/difabel-jabar-connect#13; fondasi Express/MySQL dan API contract ditambahkan melalui deonaja/difabel-jabar-connect#15. Yang sudah ada: `GET /api/v1/health`, auth (register, login, logout, me, lupa/reset kata sandi), dan kategori (daftar publik, kelola admin); endpoint fitur mengikuti [`docs/api-contract.md`](docs/api-contract.md).
 
 Baca [CONTRIBUTING.md](CONTRIBUTING.md) sebelum membuat branch atau pull request.
 
@@ -134,6 +134,16 @@ Tes yang memakai MySQL sungguhan (koneksi, skema, seeder, auth) ikut dijalankan 
 DB_TEST=1 npm test            # PowerShell: $env:DB_TEST=1; npm test
 ```
 
+## Kategori
+
+| Endpoint                           | Fungsi                                                             |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| `GET /api/v1/categories`           | Kategori aktif, urut `sort_order` (publik, tanpa token)            |
+| `POST /api/v1/admin/categories`    | Admin menambah kategori; slug dibuat dari nama jika tidak dikirim  |
+| `PUT /api/v1/admin/categories/:id` | Admin mengubah kategori atau menonaktifkannya (`is_active: false`) |
+
+Nama atau slug yang sudah dipakai ditolak `409`. Setiap perubahan admin dicatat di `admin_actions`. Coba dengan akun demo `admin@djc.test` / `Demo12345`.
+
 ## Profil provider
 
 | Endpoint                                  | Fungsi                                                                |
@@ -211,14 +221,15 @@ djc-backend/
 │   ├── routes/
 │   │   ├── index.js           # Router /api/v1
 │   │   ├── health.js          # GET /api/v1/health
-│   │   ├── auth.js            # /api/v1/auth: register, login, logout, me
+│   │   ├── auth.js            # /api/v1/auth: register, login, logout, me, reset kata sandi
+│   │   ├── categories.js      # /api/v1/categories (publik), /api/v1/admin/categories
 │   │   ├── providers.js       # /api/v1/providers/:id (publik), /api/v1/provider/* (provider)
 │   │   └── providerMedia.js   # Upload foto profil dan portofolio (Cloudinary)
 │   ├── middlewares/
 │   │   ├── auth.js            # requireAuth, requireRole, requireActiveUser
 │   │   ├── notFound.js        # 404 berformat standar
 │   │   └── errorHandler.js    # Error berformat standar
-│   ├── repositories/          # Query SQL per tabel (userRepository.js, providerRepository.js)
+│   ├── repositories/          # Query SQL per tabel (user, category, provider)
 │   ├── utils/
 │   │   ├── response.js        # sendSuccess, ApiError
 │   │   ├── token.js           # JWT dan cookie djc_token
