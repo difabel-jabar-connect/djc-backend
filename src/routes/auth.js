@@ -4,6 +4,7 @@ const { rateLimit } = require('express-rate-limit');
 const { z } = require('zod');
 const env = require('../config/env');
 const { requireAuth } = require('../middlewares/auth');
+const createGoogleAuthRouter = require('./googleAuth');
 const { ApiError, sendSuccess } = require('../utils/response');
 const { validate } = require('../utils/validate');
 const {
@@ -78,7 +79,7 @@ async function compareWithDummy(password) {
   await bcrypt.compare(password, dummyHash);
 }
 
-function createAuthRouter({ users, mailer, loginLimit = 10, resetLimit = 5 }) {
+function createAuthRouter({ users, mailer, googleOAuth, loginLimit = 10, resetLimit = 5 }) {
   const router = express.Router();
 
   // Membatasi permintaan tautan reset per IP: `resetLimit` kali per 15 menit.
@@ -168,6 +169,9 @@ function createAuthRouter({ users, mailer, loginLimit = 10, resetLimit = 5 }) {
       expires_at: expiresAt.toISOString(),
     });
   });
+
+  // A7 GET /auth/google dan /auth/google/callback (login dengan Google).
+  router.use('/google', createGoogleAuthRouter({ users, googleOAuth }));
 
   // A3 POST /auth/logout
   router.post('/logout', requireAuth, (req, res) => {
