@@ -2,7 +2,7 @@
 
 REST API Difabel Jabar Connect, marketplace jasa berbasis lokasi bagi alumni penyandang disabilitas di Jawa Barat. Node.js + Express dengan database MySQL 8, di-deploy ke Railway, sesuai keputusan stack Week 1 (`docs/project-management/meeting-notes/2026-10-04-week-1-decisions.md` dan `docs/technical/stack-comparison.md` di repository dokumentasi [deonaja/difabel-jabar-connect](https://github.com/deonaja/difabel-jabar-connect)).
 
-Status: repository disiapkan melalui deonaja/difabel-jabar-connect#13; fondasi Express/MySQL dan API contract ditambahkan melalui deonaja/difabel-jabar-connect#15. Yang sudah ada: `GET /api/v1/health`, auth (register, login, logout, me, lupa/reset kata sandi), dan kategori (daftar publik, kelola admin); endpoint fitur mengikuti [`docs/api-contract.md`](docs/api-contract.md).
+Status: repository disiapkan melalui deonaja/difabel-jabar-connect#13; fondasi Express/MySQL dan API contract ditambahkan melalui deonaja/difabel-jabar-connect#15. Yang sudah ada: `GET /api/v1/health`, auth (register, login, logout, me, lupa/reset kata sandi), kategori (daftar publik, kelola admin), profil provider (jadwal, foto, portofolio), dan pencarian layanan; endpoint fitur mengikuti [`docs/api-contract.md`](docs/api-contract.md).
 
 Baca [CONTRIBUTING.md](CONTRIBUTING.md) sebelum membuat branch atau pull request.
 
@@ -144,6 +144,15 @@ DB_TEST=1 npm test            # PowerShell: $env:DB_TEST=1; npm test
 
 Nama atau slug yang sudah dipakai ditolak `409`. Setiap perubahan admin dicatat di `admin_actions`. Coba dengan akun demo `admin@djc.test` / `Demo12345`.
 
+## Pencarian layanan
+
+| Endpoint                   | Fungsi                                                         |
+| -------------------------- | -------------------------------------------------------------- |
+| `GET /api/v1/services`     | Cari layanan dengan kata kunci, filter, urutan, dan pagination |
+| `GET /api/v1/services/:id` | Detail layanan beserta jadwal provider                         |
+
+Filter: `q`, `category_id` atau `category` (slug), `city`, `min_price`, `max_price`, `min_rating`, `day_of_week`, `sort` (`newest`, `price_asc`, `price_desc`, `rating_desc`), `page`, `limit` (maks 50). Hanya layanan aktif milik provider verified yang tampil, dan koordinat provider hanya `public_lat`/`public_lng`. Contoh: `http://localhost:5000/api/v1/services?category=jahit&sort=price_asc`.
+
 ## Profil provider
 
 | Endpoint                                  | Fungsi                                                                |
@@ -223,6 +232,7 @@ djc-backend/
 │   │   ├── health.js          # GET /api/v1/health
 │   │   ├── auth.js            # /api/v1/auth: register, login, logout, me, reset kata sandi
 │   │   ├── categories.js      # /api/v1/categories (publik), /api/v1/admin/categories
+│   │   ├── services.js        # /api/v1/services: pencarian dan detail layanan
 │   │   ├── providers.js       # /api/v1/providers/:id (publik), /api/v1/provider/* (provider)
 │   │   └── providerMedia.js   # Upload foto profil dan portofolio (Cloudinary)
 │   ├── middlewares/

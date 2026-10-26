@@ -7,6 +7,7 @@ const db = require('./config/db');
 const userRepository = require('./repositories/userRepository');
 const providerRepository = require('./repositories/providerRepository');
 const categoryRepository = require('./repositories/categoryRepository');
+const serviceRepository = require('./repositories/serviceRepository');
 const defaultMailer = require('./services/mailer');
 const { createCloudinary } = require('./services/cloudinary');
 const createApiRouter = require('./routes');
@@ -19,6 +20,7 @@ function createApp({
   users = userRepository,
   providers = providerRepository,
   categories = categoryRepository,
+  services = serviceRepository,
   mailer = defaultMailer,
   cloudinary = createCloudinary(),
   loginLimit,
@@ -50,6 +52,7 @@ function createApp({
       users,
       providers,
       categories,
+      services,
       mailer,
       cloudinary,
       loginLimit,

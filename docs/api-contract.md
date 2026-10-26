@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, kategori C1–C3, profil provider P3, P5, P6, serta upload foto dan portofolio P7, P8.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, kategori C1–C3, profil provider P3, P5, P6, upload foto dan portofolio P7, P8, serta pencarian layanan L1, L2.
 
 ---
 
@@ -135,6 +135,8 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | P8  | POST   | `/provider/portfolio`    | Provider             | Profil provider  | Sudah ada           |
 | P8  | DELETE | /provider/portfolio/:id  | Provider             | Profil provider  | Sudah ada           |
 | P4  | GET    | `/providers/:id/reviews` | Publik               | Provider, Review | Proposed            |
+| L1  | GET    | `/services`              | Publik               | Search           | Sudah ada           |
+| L2  | GET    | `/services/:id`          | Publik               | Search, Booking  | Sudah ada           |
 | B1  | POST   | `/bookings`              | Customer             | Booking          | Proposed            |
 | B2  | GET    | `/bookings`              | Customer, Provider   | Booking          | Proposed            |
 | B3  | GET    | `/bookings/:id`          | Pihak booking, Admin | Booking          | Proposed            |
@@ -407,6 +409,71 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCO
 ## 6. Pencarian dan detail provider
 
 Semua endpoint di bagian ini hanya menampilkan provider dengan `verification_status = verified` **dan** `users.status = active`. Field yang dikirim hanya yang berlabel Publik; `lat`, `lng`, `address_detail`, `alumni_reg_no`, dan `disability_type` tidak pernah dikirim.
+
+### L1 `GET /services`
+
+|             |                                                                     |
+| ----------- | ------------------------------------------------------------------- |
+| Tujuan      | Mencari layanan dengan kata kunci dan filter multi-kriteria (BE-05) |
+| Peran       | Publik                                                              |
+| Requirement | FR-CUST-02, US-CUST-02, API-05                                      |
+| Layar       | `/services` (halaman Cari Layanan)                                  |
+
+Hanya layanan `is_active = true` dari kategori aktif, milik provider `verified` dengan akun `active`. Semua parameter opsional; parameter kosong (`?city=`) diabaikan.
+
+| Param                    | Contoh              | Keterangan                                                                    |
+| ------------------------ | ------------------- | ----------------------------------------------------------------------------- |
+| `q`                      | `servis kipas`      | Setiap kata harus cocok dengan judul, deskripsi, nama provider, atau kategori |
+| `category_id`            | UUID                | Filter kategori (id)                                                          |
+| `category`               | `servis-elektronik` | Filter kategori (slug), alternatif `category_id`                              |
+| `city`                   | `Kota Bekasi`       | Kota provider (cocok persis)                                                  |
+| `min_price`, `max_price` | `10000`, `100000`   | Rentang `price_amount` (rupiah); `min_price` ≤ `max_price`                    |
+| `min_rating`             | `4`                 | `rating_avg` provider minimal (0–5)                                           |
+| `day_of_week`            | `1`                 | Provider punya jadwal di hari itu (0 = Minggu … 6 = Sabtu)                    |
+| `sort`                   | `price_asc`         | `newest` (default), `price_asc`, `price_desc`, `rating_desc`                  |
+| `page`, `limit`          | `1`, `12`           | Pagination; `limit` default 12, maks 50                                       |
+
+Sukses `200`:
+
+```json
+{
+  "data": [
+    {
+      "id": "s2…",
+      "title": "Ganti kabel dan stop kontak",
+      "description": null,
+      "pricing_type": "fixed",
+      "price_amount": 50000,
+      "min_hours": null,
+      "duration_estimate_min": 60,
+      "service_mode": "at_customer",
+      "created_at": "2026-10-25T10:00:00.000Z",
+      "category": { "id": "c1…", "name": "Servis Elektronik", "slug": "servis-elektronik" },
+      "provider": {
+        "id": "7f1a…",
+        "display_name": "Deni Setiawan",
+        "photo_url": null,
+        "photo_alt": null,
+        "city": "Kota Bekasi",
+        "district": "Bekasi Timur",
+        "public_lat": -6.24,
+        "public_lng": 106.98,
+        "rating_avg": 5.0,
+        "rating_count": 1
+      }
+    }
+  ],
+  "meta": { "page": 1, "limit": 12, "total_items": 6, "total_pages": 1 }
+}
+```
+
+Koordinat provider hanya `public_lat`/`public_lng` (dibulatkan 2 desimal); `lat`, `lng`, alamat, dan nomor alumni tidak pernah dikirim. Hasil kosong: `data: []`, `total_pages: 0`. Format `meta` di sini mengikuti issue #10 (`limit`, `total_items`), berbeda dengan konvensi 1.6 (`per_page`, `total`).
+
+Error: `400 VALIDATION_ERROR` (mis. `sort` tidak dikenal, angka tidak valid, `min_price` > `max_price`, `limit` > 50).
+
+### L2 `GET /services/:id`
+
+Detail satu layanan publik dengan bentuk sama seperti item L1, ditambah `provider.availability` (jadwal mingguan provider, bentuk P6) untuk memilih jadwal pemesanan. Error: `404 NOT_FOUND` jika layanan tidak ada, nonaktif, kategorinya nonaktif, providernya belum verified/suspended, atau id bukan UUID.
 
 ### P1 `GET /providers`
 
@@ -903,6 +970,6 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 | API-02 | Cookie lintas domain Vercel ↔ Railway          | `SameSite=None; Secure` atau rewrite Vercel; diputuskan di SP1-10                                                                    | Full-stack    | `Proposed`   |
 | API-03 | Login akun suspended                           | Boleh login, baca saja (ikut data model dan SP1-05; bertentangan dengan system flow 2.1 dan US-ADM-04)                               | SE            | `Proposed`   |
 | API-04 | Pendaftaran provider                           | Akun mitra dibuat admin (keputusan tim, 26 Okt 2026); endpoint admin menyusul. `POST /auth/register` hanya untuk customer            | SE + Product  | `Diputuskan` |
-| API-05 | Pencarian per provider atau per layanan        | Per provider (`GET /providers`); tambah `GET /services` jika UI butuh                                                                | SE + Frontend | `Proposed`   |
+| API-05 | Pencarian per provider atau per layanan        | Per layanan: `GET /services` (L1) dibuat di BE-05 sesuai issue #10; `GET /providers` (P1)                                            | SE + Frontend | `Proposed`   |
 | API-06 | Bentuk endpoint transisi status                | Satu endpoint per aksi (`/accept`, `/reject`, …)                                                                                     | Full-stack    | `Proposed`   |
 | API-07 | Data milik orang lain                          | `404`, bukan `403`                                                                                                                   | SE            | `Proposed`   |
