@@ -190,6 +190,19 @@ Gambar dikirim sebagai data URI base64 di body JSON (`{ "image": "data:image/jpe
 
 Tanpa ketiga nilai itu, endpoint upload menjawab `503` ("Upload gambar belum diaktifkan.").
 
+## Admin
+
+| Endpoint                                 | Fungsi                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| `GET /api/v1/admin/dashboard`            | Ringkasan jumlah user, provider, booking, dan ulasan                |
+| `POST /api/v1/admin/providers`           | Admin membuat akun mitra (profil `pending`)                         |
+| `PUT /api/v1/admin/providers/:id/verify` | Verifikasi (`verified`) atau tolak (`rejected`, wajib `note`) mitra |
+| `PUT /api/v1/admin/reviews/:id/moderate` | Sembunyikan/tampilkan ulasan; rating provider dihitung ulang        |
+| `PUT /api/v1/admin/users/:id/suspend`    | Tangguhkan akun (wajib `reason`); booking aktifnya dibatalkan       |
+| `PUT /api/v1/admin/users/:id/activate`   | Aktifkan kembali akun                                               |
+
+Semua aksi admin dicatat di `admin_actions`. Admin tidak bisa menangguhkan akunnya sendiri atau admin lain. Coba dengan akun demo `admin@djc.test` / `Demo12345`. Detail di API contract bagian 9a.
+
 ## Database: migrasi dan data dummy
 
 Skema 12 tabel mengikuti `docs/technical/data-model.md` di repository dokumentasi (SP1-02): UUID `CHAR(36)`, waktu `DATETIME(6)` UTC, uang `BIGINT` rupiah, dan semua CHECK constraint. Satu file migrasi per tabel di `db/migrations/`.
@@ -248,6 +261,7 @@ djc-backend/
 │   │   ├── categories.js      # /api/v1/categories (publik), /api/v1/admin/categories
 │   │   ├── services.js        # /api/v1/services: pencarian dan detail layanan
 │   │   ├── bookings.js        # /api/v1/bookings: pemesanan dan transisi status
+│   │   ├── admin.js           # /api/v1/admin: dasbor, mitra, moderasi, suspend
 │   │   ├── providers.js       # /api/v1/providers/:id (publik), /api/v1/provider/* (provider)
 │   │   └── providerMedia.js   # Upload foto profil dan portofolio (Cloudinary)
 │   ├── middlewares/

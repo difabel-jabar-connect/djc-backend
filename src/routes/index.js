@@ -6,6 +6,7 @@ const { createProviderMediaRouter } = require('./providerMedia');
 const { createCategoriesRouter, createAdminCategoriesRouter } = require('./categories');
 const { createServicesRouter } = require('./services');
 const { createBookingsRouter } = require('./bookings');
+const { createAdminRouter } = require('./admin');
 
 function createApiRouter(deps) {
   const router = express.Router();
@@ -19,9 +20,9 @@ function createApiRouter(deps) {
   router.use('/provider', createProviderSelfRouter(deps));
   router.use('/provider', createProviderMediaRouter(deps));
   router.use('/bookings', createBookingsRouter(deps));
+  router.use('/admin', createAdminRouter(deps));
 
-  // Endpoint fitur berikutnya (reviews, admin) ditambahkan di sini
-  // mengikuti docs/api-contract.md.
+  // Endpoint fitur berikutnya ditambahkan di sini mengikuti docs/api-contract.md.
 
   return router;
 }

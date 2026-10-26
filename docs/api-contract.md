@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, kategori C1–C3, profil provider P3, P5, P6, upload foto dan portofolio P7, P8, pencarian layanan L1, L2, booking B1–B3, status S1–S5, dan ulasan R1.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, kategori C1–C3, profil provider P3, P5, P6, upload foto dan portofolio P7, P8, pencarian layanan L1, L2, booking B1–B3, status S1–S5, ulasan R1, serta admin AD1–AD6.
 
 ---
 
@@ -941,6 +941,54 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 
 ---
 
+## 9a. Admin dan tata kelola (BE-09)
+
+Semua endpoint di bagian ini khusus admin (`requireAuth` + `requireRole('admin')` + `requireActiveUser()`): tanpa token `401`, bukan admin `403 FORBIDDEN`, admin `suspended` `403 ACCOUNT_SUSPENDED`. Setiap perubahan dicatat append-only ke `admin_actions` dalam transaksi yang sama.
+
+| #   | Endpoint                          | Aksi `admin_actions`                | Ringkas                                              |
+| --- | --------------------------------- | ----------------------------------- | ---------------------------------------------------- |
+| AD1 | `GET /admin/dashboard`            | –                                   | Ringkasan metrik user, provider, booking, dan ulasan |
+| AD2 | `POST /admin/providers`           | `create_provider`                   | Admin membuat akun mitra (API-04), profil `pending`  |
+| AD3 | `PUT /admin/providers/:id/verify` | `verify_provider`/`reject_provider` | Verifikasi atau tolak mitra                          |
+| AD4 | `PUT /admin/reviews/:id/moderate` | `hide_review`/`unhide_review`       | Sembunyikan/tampilkan ulasan, rating dihitung ulang  |
+| AD5 | `PUT /admin/users/:id/suspend`    | `suspend_user`                      | Tangguhkan akun, booking aktif dibatalkan berantai   |
+| AD6 | `PUT /admin/users/:id/activate`   | `activate_user`                     | Aktifkan kembali akun                                |
+
+**AD1** sukses `200`:
+
+```json
+{
+  "data": {
+    "users": { "total": 11, "customers": 4, "providers": 6, "admins": 1, "suspended": 0 },
+    "providers": { "pending": 1, "verified": 4, "rejected": 1 },
+    "bookings": {
+      "total": 7,
+      "requested": 1,
+      "accepted": 1,
+      "in_progress": 1,
+      "completed": 2,
+      "rejected": 1,
+      "cancelled": 1
+    },
+    "reviews": { "total": 2, "hidden": 1, "average_rating": 5.0 }
+  }
+}
+```
+
+**AD2** request: `{ "name", "email", "phone", "password", "alumni_reg_no", "city" }` (aturan sama dengan register untuk nama, email, telepon, dan kata sandi awal; `alumni_reg_no` wajib maks 50; `city` wajib). Kata sandi di-hash bcrypt. Sukses `201`: `{ "user": { "id", "role": "provider", "name", "email", "phone", "status" }, "provider_profile": { "id", "verification_status": "pending" } }`. Email ganda `409 CONFLICT`. Mitra lalu melengkapi lokasi lewat P5 sebelum bisa diverifikasi.
+
+**AD3** request: `{ "status": "verified" }` atau `{ "status": "rejected", "note": "…" }`. Penolakan wajib `note` minimal 10 karakter (FR-ADM-02). `verified` ditolak `400` jika `address_detail` atau koordinat belum ada (sesuai CHECK `provider_profiles_verified_complete_check`). Server mengisi `verified_by` dan `verified_at`. Sukses `200`: `{ "id", "display_name", "verification_status", "verified_by", "verified_at" }`.
+
+**AD4** request: `{ "is_hidden": true, "reason": "…" }` (alasan wajib minimal 10 karakter saat menyembunyikan) atau `{ "is_hidden": false }`. `rating_avg`/`rating_count` provider dihitung ulang tanpa ulasan tersembunyi, dalam transaksi yang sama. Status yang sama dengan sekarang → `409 CONFLICT`.
+
+**AD5** request: `{ "reason": "…" }` (wajib minimal 10 karakter). Booking `requested`/`accepted` milik akun itu (sebagai customer maupun provider) dibatalkan dengan `cancelled_by = admin`, `status_reason`, dan riwayat status. Sukses `200`: `{ "user": { …, "status": "suspended" }, "cancelled_bookings": 2 }`. Admin tidak bisa menangguhkan akunnya sendiri atau admin lain (`403`); akun yang sudah ditangguhkan → `409`.
+
+**AD6** body opsional `{ "reason": "…" }`; mengaktifkan kembali akun (booking yang sudah dibatalkan tidak dipulihkan).
+
+Error umum: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND` (id tidak ada atau bukan UUID), `409 CONFLICT`.
+
+---
+
 ## 10. Hubungan Flow → Layar → Endpoint
 
 | Flow     | Layar                                                                           | Endpoint          |
@@ -958,9 +1006,9 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 
 | Area                                 | Endpoint rencana                                                                                                     | Issue/backlog         |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| Admin membuat akun mitra             | `POST /admin/providers`: akun provider + `provider_profiles` `pending`, wajib `alumni_reg_no` dan `city`             | API-04                |
+| Admin membuat akun mitra             | Sudah ada di bagian 9a (AD2, `POST /admin/providers`)                                                                | API-04                |
 | Jadwal, layanan, portofolio provider | `/provider/services` (jadwal sudah ada di P6, portofolio di P8)                                                      | FR-PROV-04–06, SP1-08 |
-| Admin verifikasi dan moderasi        | `/admin/providers/:id/verify`, `/admin/reviews/:id/hide`, `/admin/users/:id/suspend`                                 | FR-ADM-01–06          |
+| Admin verifikasi dan moderasi        | Sudah ada di bagian 9a (AD1, AD3–AD6)                                                                                | FR-ADM-01–06          |
 | Email reset/verifikasi               | Reset sudah ada (A5–A6, SMTP atau tautan di terminal); penyedia email final dan verifikasi email menunggu STK-OPN-03 | –                     |
 | Payment sandbox                      | Stretch goal                                                                                                         | STR-01                |
 

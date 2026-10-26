@@ -10,6 +10,7 @@ const categoryRepository = require('./repositories/categoryRepository');
 const serviceRepository = require('./repositories/serviceRepository');
 const bookingRepository = require('./repositories/bookingRepository');
 const reviewRepository = require('./repositories/reviewRepository');
+const adminRepository = require('./repositories/adminRepository');
 const defaultMailer = require('./services/mailer');
 const { createCloudinary } = require('./services/cloudinary');
 const createApiRouter = require('./routes');
@@ -25,6 +26,7 @@ function createApp({
   services = serviceRepository,
   bookings = bookingRepository,
   reviews = reviewRepository,
+  admin = adminRepository,
   mailer = defaultMailer,
   cloudinary = createCloudinary(),
   now,
@@ -60,6 +62,7 @@ function createApp({
       services,
       bookings,
       reviews,
+      admin,
       mailer,
       cloudinary,
       now,
