@@ -10,7 +10,7 @@ const GOOGLE_ISSUERS = ['accounts.google.com', 'https://accounts.google.com'];
 let cache = { keys: new Map(), expiresAt: 0 };
 
 async function fetchKeys() {
-  const res = await fetch(GOOGLE_CERTS_URL);
+  const res = await fetch(GOOGLE_CERTS_URL, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`Gagal mengambil kunci Google (${res.status}).`);
   const { keys } = await res.json();
   const maxAge = Number(/max-age=(\d+)/.exec(res.headers.get('cache-control') || '')?.[1] ?? 3600);
