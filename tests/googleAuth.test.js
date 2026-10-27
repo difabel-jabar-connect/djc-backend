@@ -191,18 +191,24 @@ test('redirect hanya menerima path internal frontend (cegah open redirect)', asy
     'https://evil.com',
     'evil.com',
     '/\\evil.com',
+    '/\t/evil.example',
+    '/\n/evil.example',
+    '/\r/evil.example',
+    '/bookings\u007f',
     '',
     undefined,
   ]) {
-    assert.equal(safeRedirectPath(value), null, String(value));
+    assert.equal(safeRedirectPath(value), null, JSON.stringify(value));
   }
 
   const app = createApp({ users: fakeUsers(budi), googleOAuth: fakeGoogle().oauth });
-  const { state, cookie } = await start(app, '?redirect=//evil.com');
-  const res = await request(app)
-    .get(`/api/v1/auth/google/callback?code=kode-budi@gmail.com&state=${state}`)
-    .set('Cookie', cookie);
-  assert.equal(res.headers.location, `${FRONTEND}/?google=success`);
+  for (const redirect of ['//evil.com', '/%09/evil.example', '/%0A/evil.example']) {
+    const { state, cookie } = await start(app, `?redirect=${redirect}`);
+    const res = await request(app)
+      .get(`/api/v1/auth/google/callback?code=kode-budi@gmail.com&state=${state}`)
+      .set('Cookie', cookie);
+    assert.equal(res.headers.location, `${FRONTEND}/?google=success`, redirect);
+  }
 });
 
 // A8 POST /auth/google (popup Google Identity Services di frontend).

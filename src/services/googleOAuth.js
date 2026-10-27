@@ -7,6 +7,8 @@ const { verifyGoogleToken } = require('../utils/googleToken');
 //   penukarannya memakai redirect_uri "postmessage".
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+// Request ke Google tidak boleh menggantung tanpa batas.
+const FETCH_TIMEOUT_MS = 10_000;
 
 /**
  * `fetchImpl` dan `verifyIdToken` dapat diganti saat testing supaya tes tidak memanggil
@@ -46,6 +48,7 @@ function createGoogleOAuth({
         redirect_uri: redirectUri,
         grant_type: 'authorization_code',
       }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok || typeof body.id_token !== 'string') {

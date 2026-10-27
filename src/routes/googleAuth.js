@@ -27,7 +27,13 @@ function stateCookieOptions() {
 function safeRedirectPath(value) {
   if (typeof value !== 'string' || value.length > 500) return null;
   if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return null;
-  return value;
+  // Parser URL membuang tab/newline, jadi "/<TAB>/evil.com" bisa menjadi "//evil.com".
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(value)) return null;
+  const base = new URL(`${env.app.frontendUrl}/`);
+  const url = new URL(value, base);
+  if (url.origin !== base.origin) return null;
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function frontendUrl(path, params = {}) {
