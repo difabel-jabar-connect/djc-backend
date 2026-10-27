@@ -2,6 +2,15 @@ const { randomUUID } = require('node:crypto');
 const db = require('../config/db');
 
 /**
+ * Mengunci baris provider di awal transaksi yang mengubah review-nya. Tanpa ini, dua
+ * review untuk provider yang sama bisa deadlock: INSERT memegang shared lock baris
+ * provider (foreign key), lalu keduanya meminta exclusive lock saat rating di-update.
+ */
+async function lockProvider(connection, providerId) {
+  await connection.query('SELECT id FROM provider_profiles WHERE id = ? FOR UPDATE', [providerId]);
+}
+
+/**
  * Menghitung ulang rating_avg dan rating_count provider dari review yang tidak
  * disembunyikan. Dipanggil di dalam transaksi yang sama dengan perubahan review
  * (dipakai juga untuk moderasi ulasan di BE-09).
@@ -28,6 +37,7 @@ async function createForBooking({ bookingId, customerId, providerId, rating, com
   const id = randomUUID();
   try {
     await connection.beginTransaction();
+    await lockProvider(connection, providerId);
     await connection.query(
       `INSERT INTO reviews (id, booking_id, customer_id, provider_id, rating, comment)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -50,4 +60,4 @@ async function createForBooking({ bookingId, customerId, providerId, rating, com
   return { ...rows[0], is_hidden: Boolean(rows[0].is_hidden) };
 }
 
-module.exports = { createForBooking, recomputeProviderRating };
+module.exports = { createForBooking, lockProvider, recomputeProviderRating };

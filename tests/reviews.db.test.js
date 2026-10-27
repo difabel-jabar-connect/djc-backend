@@ -8,6 +8,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const request = require('supertest');
+const { createTestCategory, deleteTestCategory } = require('./helpers/testCategory');
 
 test(
   'ulasan, rating provider, dan auto-cancel ke database',
@@ -36,12 +37,13 @@ test(
       await knex('services').where({ id: ids.service }).del();
       await knex('provider_profiles').where({ id: ids.provider }).del();
       await knex('users').whereIn('id', [ids.customer, ids.providerUser]).del();
+      await deleteTestCategory(knex, suffix);
       await knex.destroy();
       await db.closePool();
     });
 
     await knex.migrate.latest();
-    const category = await knex('categories').where({ is_active: true }).first();
+    const category = await createTestCategory(knex, suffix);
     await knex('users').insert([
       {
         id: ids.customer,
@@ -132,6 +134,26 @@ test(
       .get(`/api/v1/bookings/${done1.id}`)
       .set('Authorization', auth);
     assert.equal(detail.body.data.can_review, false);
+
+    // Ulasan bersamaan untuk provider yang sama tidak boleh deadlock (review #24): baris
+    // provider dikunci lebih dulu, jadi semuanya tersimpan bergantian.
+    const reviewRepository = require('../src/repositories/reviewRepository');
+    const concurrent = Array.from({ length: 6 }, () => booking('completed'));
+    await knex('bookings').insert(concurrent);
+    await Promise.all(
+      concurrent.map((row, index) =>
+        reviewRepository.createForBooking({
+          bookingId: row.id,
+          customerId: ids.customer,
+          providerId: ids.provider,
+          rating: index % 2 ? 5 : 3,
+          comment: null,
+        }),
+      ),
+    );
+    profile = await knex('provider_profiles').where({ id: ids.provider }).first();
+    assert.equal(profile.rating_count, 8);
+    assert.equal(Number(profile.rating_avg), 3.9);
 
     // Auto-cancel hanya untuk booking requested yang dibuat sebelum batas waktu.
     const cancelled = await bookingRepository.cancelExpiredRequested({
