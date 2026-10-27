@@ -203,7 +203,7 @@ async function transition(id, { to, changedBy, decide }) {
   await inTransaction(async (connection) => {
     const [rows] = await connection.query(
       `SELECT id, status, pricing_type_snapshot, unit_price_snapshot, estimated_total,
-              scheduled_date, start_time, provider_id
+              scheduled_date, start_time, quantity, provider_id
        FROM bookings WHERE id = ? FOR UPDATE`,
       [id],
     );
@@ -214,12 +214,19 @@ async function transition(id, { to, changedBy, decide }) {
       await connection.query('SELECT id FROM provider_profiles WHERE id = ? FOR UPDATE', [
         current.provider_id,
       ]);
+      // Rentang waktu = start_time + quantity jam (non-hourly selalu quantity 1), dihitung
+      // dalam detik supaya batas yang pas bersambung (09:00–11:00 lalu 11:00) tidak bentrok.
+      const [hours, minutes] = String(current.start_time).split(':').map(Number);
+      const start = hours * 3600 + minutes * 60;
+      const end = start + Number(current.quantity) * 3600;
       const [conflicts] = await connection.query(
         `SELECT id FROM bookings
-         WHERE provider_id = ? AND scheduled_date = ? AND start_time = ? AND id <> ?
+         WHERE provider_id = ? AND scheduled_date = ? AND id <> ?
            AND status IN ('accepted', 'in_progress')
+           AND TIME_TO_SEC(start_time) < ?
+           AND TIME_TO_SEC(start_time) + quantity * 3600 > ?
          LIMIT 1`,
-        [current.provider_id, current.scheduled_date, current.start_time, id],
+        [current.provider_id, current.scheduled_date, id, end, start],
       );
       return conflicts.length > 0;
     };

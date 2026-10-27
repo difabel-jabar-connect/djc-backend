@@ -142,7 +142,11 @@ const createSchema = z
     scheduled_date: z
       .string('Tanggal wajib diisi.')
       .regex(DATE_PATTERN, 'Tanggal berformat YYYY-MM-DD.')
-      .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)), 'Tanggal tidak valid.'),
+      .refine((value) => {
+        // Date menggeser tanggal yang tidak ada (2026-02-30 → 2026-03-02), jadi dicek bolak-balik.
+        const date = new Date(`${value}T00:00:00Z`);
+        return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+      }, 'Tanggal tidak valid.'),
     start_time: z
       .string('Jam mulai wajib diisi.')
       .regex(TIME_PATTERN, 'Jam mulai berformat HH:mm.'),
@@ -267,17 +271,6 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
       throw fieldError('service_mode', 'Mode layanan ini tidak tersedia untuk penyedia jasa ini.');
     }
 
-    const slots = await bookings.listSlotsForDay(
-      service.provider_id,
-      dayOfWeek(body.scheduled_date),
-    );
-    const start = toMinutes(body.start_time);
-    if (
-      !slots.some((slot) => start >= toMinutes(slot.start_time) && start < toMinutes(slot.end_time))
-    ) {
-      throw fieldError('start_time', 'Jam yang dipilih berada di luar jam operasional penyedia.');
-    }
-
     let quantity = 1;
     if (service.pricing_type === 'hourly') {
       if (body.quantity === undefined) throw fieldError('quantity', 'Jumlah jam wajib diisi.');
@@ -285,6 +278,26 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
         throw fieldError('quantity', `Minimal ${service.min_hours} jam untuk layanan ini.`);
       }
       quantity = body.quantity;
+    }
+
+    // Pesanan menempati `quantity` jam sejak jam mulai (non-hourly dihitung 1 jam) dan harus
+    // muat di satu slot jadwal provider.
+    const slots = await bookings.listSlotsForDay(
+      service.provider_id,
+      dayOfWeek(body.scheduled_date),
+    );
+    const start = toMinutes(body.start_time);
+    const slot = slots.find(
+      (s) => start >= toMinutes(s.start_time) && start < toMinutes(s.end_time),
+    );
+    if (!slot) {
+      throw fieldError('start_time', 'Jam yang dipilih berada di luar jam operasional penyedia.');
+    }
+    if (start + quantity * 60 > toMinutes(slot.end_time)) {
+      throw fieldError(
+        'start_time',
+        `Durasi pesanan melewati jam operasional penyedia (tutup pukul ${slot.end_time}).`,
+      );
     }
 
     const atCustomer = body.service_mode === 'at_customer';
@@ -405,8 +418,8 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
     if (!allowed.includes(current.status)) throw invalidTransition(current.status, what);
   };
 
-  // S1 accept: requested → accepted, tidak boleh bentrok dengan pesanan lain yang sudah
-  // diterima/berjalan di tanggal dan jam yang sama (dicek di transaksi yang sama).
+  // S1 accept: requested → accepted, tidak boleh tumpang tindih dengan pesanan lain yang sudah
+  // diterima/berjalan di tanggal yang sama (dicek di transaksi yang sama).
   action('accept', ({ viewer }) => {
     providerOnly(viewer, 'menerima');
     return {
@@ -417,7 +430,7 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
           throw new ApiError(
             409,
             'CONFLICT',
-            'Anda sudah menerima pesanan lain pada tanggal dan jam yang sama.',
+            'Jadwal ini bentrok dengan pesanan lain yang sudah Anda terima.',
           );
         }
         return {};

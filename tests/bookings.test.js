@@ -142,14 +142,20 @@ function fakeBookings() {
     },
     async transition(id, { to, changedBy, decide }) {
       const row = rows.get(id);
+      // Sama dengan repository asli: rentang start_time + quantity jam yang tumpang tindih.
+      const range = (b) => {
+        const start = Number(b.start_time.slice(0, 2)) * 60 + Number(b.start_time.slice(3, 5));
+        return [start, start + Number(b.quantity) * 60];
+      };
       const hasScheduleConflict = async () =>
         [...rows.values()].some(
           (other) =>
             other.id !== id &&
             other.provider_id === row.provider_id &&
             other.scheduled_date === row.scheduled_date &&
-            other.start_time === row.start_time &&
-            ['accepted', 'in_progress'].includes(other.status),
+            ['accepted', 'in_progress'].includes(other.status) &&
+            range(other)[0] < range(row)[1] &&
+            range(other)[1] > range(row)[0],
         );
       const { changes = {}, reason = null } = await decide({ ...row }, { hasScheduleConflict });
       const role = [customer, otherCustomer, providerUser, otherProviderUser].find(
@@ -202,7 +208,7 @@ test('B1 customer membuat booking requested dengan snapshot harga dan riwayat', 
   const booking = await createBooking(app, {
     service_id: SERVICES.hourly.id,
     scheduled_date: NEXT_MONDAY,
-    start_time: '13:30',
+    start_time: '12:30',
     service_mode: 'at_customer',
     quantity: 3,
     location_area: 'Bekasi Timur, Kota Bekasi',
@@ -253,6 +259,9 @@ test('B1 validasi: tanggal lampau, di luar jam, mode tidak tersedia, jam minimum
     [{ ...hourly, quantity: undefined }, 'quantity'],
     [{ ...hourly, location_address: undefined }, 'location_address'],
     [{ ...fixedBody, start_time: '9:00' }, 'start_time'],
+    [{ ...fixedBody, scheduled_date: '2026-11-31' }, 'scheduled_date'],
+    [{ ...hourly, start_time: '14:00' }, 'start_time'],
+    [{ ...fixedBody, start_time: '15:30' }, 'start_time'],
   ];
   for (const [body, field] of cases) {
     const res = await post(body);
@@ -386,17 +395,30 @@ test('state machine: lompat status ditolak 409 INVALID_TRANSITION', async () => 
   );
 });
 
-test('accept ditolak 409 jika provider sudah menerima pesanan lain di jadwal yang sama', async () => {
+test('accept ditolak 409 jika jadwalnya tumpang tindih dengan pesanan yang sudah diterima', async () => {
   const { app } = setup();
   const first = await createBooking(app);
   const second = await createBooking(app, fixedBody, otherCustomer);
   const otherTime = await createBooking(app, { ...fixedBody, start_time: '13:00' });
+  // Per jam 13:30 selama 2 jam menabrak blok 13:00–14:00; 14:00 pas setelahnya boleh.
+  const hourly = {
+    service_id: SERVICES.hourly.id,
+    scheduled_date: MONDAY,
+    service_mode: 'at_customer',
+    quantity: 2,
+    location_area: 'Bekasi Timur',
+    location_address: 'Jl. Melati No. 10',
+  };
+  const overlapping = await createBooking(app, { ...hourly, start_time: '13:30' });
+  const adjacent = await createBooking(app, { ...hourly, start_time: '14:00' });
 
   assert.equal((await act(app, providerUser, first.id, 'accept')).status, 200);
   const clash = await act(app, providerUser, second.id, 'accept');
   assert.equal(clash.status, 409);
   assert.equal(clash.body.error.code, 'CONFLICT');
   assert.equal((await act(app, providerUser, otherTime.id, 'accept')).status, 200);
+  assert.equal((await act(app, providerUser, overlapping.id, 'accept')).status, 409);
+  assert.equal((await act(app, providerUser, adjacent.id, 'accept')).status, 200);
 
   // Setelah pesanan pertama dibatalkan, jadwal itu kosong lagi.
   await act(app, customer, first.id, 'cancel');

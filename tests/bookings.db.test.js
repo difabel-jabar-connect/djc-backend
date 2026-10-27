@@ -111,7 +111,7 @@ test(
       .send({
         service_id: ids.hourly,
         scheduled_date: '2026-11-02',
-        start_time: '09:00',
+        start_time: '10:00',
         service_mode: 'at_customer',
         quantity: 3,
         location_area: 'Coblong, Kota Bandung',
@@ -237,5 +237,31 @@ test(
         .update({ status: 'completed', cancelled_by: null }),
       /bookings_completed_totals_check/,
     );
+
+    // Accept menolak jadwal yang tumpang tindih (start_time + quantity jam) dengan pesanan
+    // yang sudah diterima: 09:00–11:00 sudah diterima, 10:00 bentrok, 11:00 pas setelahnya.
+    const book = async (startTime) => {
+      const res = await request(app)
+        .post('/api/v1/bookings')
+        .set('Authorization', asCustomer)
+        .send({
+          service_id: ids.hourly,
+          scheduled_date: '2026-11-16',
+          start_time: startTime,
+          service_mode: 'at_provider',
+          quantity: 2,
+        });
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      return res.body.data.id;
+    };
+    const accept = (bookingId) =>
+      request(app).put(`/api/v1/bookings/${bookingId}/accept`).set('Authorization', asProvider);
+    const [nine, ten, eleven] = [await book('09:00'), await book('10:00'), await book('11:00')];
+    assert.equal((await accept(nine)).status, 200);
+    const clash = await accept(ten);
+    assert.equal(clash.status, 409, JSON.stringify(clash.body));
+    assert.equal(clash.body.error.code, 'CONFLICT');
+    assert.equal((await knex('bookings').where({ id: ten }).first()).status, 'requested');
+    assert.equal((await accept(eleven)).status, 200);
   },
 );
