@@ -920,7 +920,7 @@ Request: `{ "rating": 5, "comment": "Cepat, rapi, penjelasannya jelas." }`
 | `rating`  | Integer 1–5, wajib           |
 | `comment` | Maks 1000 karakter, opsional |
 
-`customer_id` dan `provider_id` diisi server dari booking. Server menghitung ulang `rating_avg` (rata-rata 1 desimal) dan `rating_count` provider dari ulasan yang tidak disembunyikan, dalam transaksi yang sama. Endpoint juga bisa dipanggil sebagai `POST /bookings/:id/reviews` (issue #13). Hanya customer pemilik booking; customer lain mendapat `404`, provider/admin `403`.
+`customer_id` dan `provider_id` diisi server dari booking. Server menghitung ulang `rating_avg` (rata-rata 1 desimal) dan `rating_count` provider dari ulasan yang tidak disembunyikan, dalam transaksi yang sama. Baris provider dikunci (`FOR UPDATE`) di awal transaksi, jadi ulasan bersamaan untuk provider yang sama tersimpan bergantian tanpa deadlock. Endpoint juga bisa dipanggil sebagai `POST /bookings/:id/reviews` (issue #13). Hanya customer pemilik booking; customer lain mendapat `404`, provider/admin `403`.
 
 Sukses `201`:
 
@@ -953,6 +953,9 @@ Semua endpoint di bagian ini khusus admin (`requireAuth` + `requireRole('admin')
 | AD4 | `PUT /admin/reviews/:id/moderate` | `hide_review`/`unhide_review`       | Sembunyikan/tampilkan ulasan, rating dihitung ulang  |
 | AD5 | `PUT /admin/users/:id/suspend`    | `suspend_user`                      | Tangguhkan akun, booking aktif dibatalkan berantai   |
 | AD6 | `PUT /admin/users/:id/activate`   | `activate_user`                     | Aktifkan kembali akun                                |
+| AD7 | `GET /admin/providers`            | –                                   | Daftar mitra untuk tabel verifikasi                  |
+| AD8 | `GET /admin/reviews`              | –                                   | Daftar ulasan untuk moderasi                         |
+| AD9 | `GET /admin/users`                | –                                   | Daftar akun untuk penangguhan                        |
 
 **AD1** sukses `200`:
 
@@ -979,11 +982,17 @@ Semua endpoint di bagian ini khusus admin (`requireAuth` + `requireRole('admin')
 
 **AD3** request: `{ "status": "verified" }` atau `{ "status": "rejected", "note": "…" }`. Penolakan wajib `note` minimal 10 karakter (FR-ADM-02). `verified` ditolak `400` jika `address_detail` atau koordinat belum ada (sesuai CHECK `provider_profiles_verified_complete_check`). Server mengisi `verified_by` dan `verified_at`. Sukses `200`: `{ "id", "display_name", "verification_status", "verified_by", "verified_at" }`.
 
-**AD4** request: `{ "is_hidden": true, "reason": "…" }` (alasan wajib minimal 10 karakter saat menyembunyikan) atau `{ "is_hidden": false }`. `rating_avg`/`rating_count` provider dihitung ulang tanpa ulasan tersembunyi, dalam transaksi yang sama. Status yang sama dengan sekarang → `409 CONFLICT`.
+**AD4** request: `{ "is_hidden": true, "reason": "…" }` (alasan wajib minimal 10 karakter saat menyembunyikan) atau `{ "is_hidden": false }`. `rating_avg`/`rating_count` provider dihitung ulang tanpa ulasan tersembunyi, dalam transaksi yang sama. Baris provider dikunci (`FOR UPDATE`) di awal transaksi, sama seperti R1, supaya tidak deadlock dengan ulasan baru untuk provider yang sama. Status yang sama dengan sekarang → `409 CONFLICT`.
 
 **AD5** request: `{ "reason": "…" }` (wajib minimal 10 karakter). Booking `requested`/`accepted` milik akun itu (sebagai customer maupun provider) dibatalkan dengan `cancelled_by = admin`, `status_reason`, dan riwayat status. Sukses `200`: `{ "user": { …, "status": "suspended" }, "cancelled_bookings": 2 }`. Admin tidak bisa menangguhkan akunnya sendiri atau admin lain (`403`); akun yang sudah ditangguhkan → `409`.
 
 **AD6** body opsional `{ "reason": "…" }`; mengaktifkan kembali akun (booking yang sudah dibatalkan tidak dipulihkan).
+
+**AD7–AD9 (daftar untuk tabel admin, FE-05).** Semua memakai `page` (default 1) dan `limit` (default 12, maks 50); `meta` sama dengan B2 dan L1: `{ "page", "limit", "total_items", "total_pages" }`. Hasil kosong tetap `200` dengan `data: []`. Query tidak valid → `400 VALIDATION_ERROR`.
+
+- **AD7** `GET /admin/providers?status=pending&q=…`: `status` (`pending`/`verified`/`rejected`, opsional), `q` (nama tampilan, email, atau nomor alumni). Urutan: paling lama mendaftar dulu (antrean verifikasi). Item: `{ "id", "display_name", "alumni_reg_no", "city", "district", "has_location", "verification_status", "verified_at", "rating_avg", "rating_count", "created_at", "user": { "id", "name", "email", "phone", "status" } }`. Nomor alumni dan kontak dikirim karena admin perlu meninjaunya (FR-ADM-02); `has_location` menandai mitra yang sudah bisa diverifikasi (AD3). Alamat lengkap dan koordinat tidak dikirim.
+- **AD8** `GET /admin/reviews?hidden=true&provider_id=…`: `hidden` (`true`/`false`, opsional; tanpa filter ulasan tersembunyi ikut tampil), `provider_id` (UUID). Urutan: terbaru dulu. Item: `{ "id", "booking_id", "rating", "comment", "is_hidden", "hidden_reason", "created_at", "provider": { "id", "display_name" }, "customer": { "id", "name" } }`.
+- **AD9** `GET /admin/users?role=provider&status=active&q=…`: `role`, `status` (`active`/`suspended`), `q` (nama atau email). Urutan: terbaru dulu. Item: `{ "id", "role", "name", "email", "phone", "status", "created_at" }`.
 
 Error umum: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND` (id tidak ada atau bukan UUID), `409 CONFLICT`.
 

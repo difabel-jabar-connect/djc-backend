@@ -7,6 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const request = require('supertest');
+const { createTestCategory, deleteTestCategory } = require('./helpers/testCategory');
 
 test(
   'admin: buat mitra, verifikasi, moderasi, suspend ke database',
@@ -40,12 +41,13 @@ test(
       await knex('services').whereIn('provider_id', profileIds).del();
       await knex('provider_profiles').whereIn('id', profileIds).del();
       await knex('users').whereIn('id', userIds).del();
+      await deleteTestCategory(knex, suffix);
       await knex.destroy();
       await db.closePool();
     });
 
     await knex.migrate.latest();
-    const category = await knex('categories').where({ is_active: true }).first();
+    const category = await createTestCategory(knex, suffix);
     const user = (id, role, name) => ({
       id,
       role,
@@ -120,6 +122,34 @@ test(
     const dashboard = await call('get', '/dashboard');
     assert.equal(dashboard.status, 200);
     assert.ok(dashboard.body.data.users.admins >= 1);
+
+    // Daftar untuk tabel admin (review #25): dicari lewat nomor alumni/email uji.
+    const providers = await call('get', `/providers?status=pending&q=UJI-A-${suffix}`);
+    assert.equal(providers.status, 200);
+    assert.equal(providers.body.meta.total_items, 1);
+    assert.equal(providers.body.data[0].id, ids.provider);
+    assert.equal(providers.body.data[0].alumni_reg_no, `UJI-A-${suffix}`);
+    assert.equal(providers.body.data[0].has_location, true);
+    assert.equal(providers.body.data[0].user.name, 'Uji Mitra');
+
+    const reviewList = await call('get', `/reviews?provider_id=${ids.provider}`);
+    assert.equal(reviewList.status, 200);
+    assert.deepEqual(
+      reviewList.body.data.map((r) => [r.id, r.is_hidden, r.customer.name]),
+      [[ids.review, false, 'Uji Pelanggan']],
+    );
+    assert.equal(
+      (await call('get', `/reviews?provider_id=${ids.provider}&hidden=true`)).body.data.length,
+      0,
+    );
+
+    const userList = await call('get', `/users?role=customer&q=${ids.customer.slice(0, 8)}`);
+    assert.equal(userList.status, 200);
+    assert.deepEqual(
+      userList.body.data.map((u) => u.id),
+      [ids.customer],
+    );
+    assert.equal(userList.body.data[0].password_hash, undefined);
 
     // Admin membuat akun mitra; tercatat create_provider.
     const created = await call('post', '/providers', {

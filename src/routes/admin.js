@@ -86,6 +86,41 @@ const moderateSchema = z
     }
   });
 
+// Query string selalu berupa teks; kosong ("?status=") dianggap tidak diisi.
+const blank = (schema) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
+const pagination = {
+  page: blank(z.coerce.number().int().min(1, 'Halaman minimal 1.').max(10_000)),
+  limit: blank(z.coerce.number().int().min(1).max(50, 'Maksimal 50 per halaman.')),
+};
+const search = blank(z.string().trim().max(100, 'Kata kunci maksimal 100 karakter.'));
+
+const listProvidersSchema = z.object({
+  status: blank(
+    z.enum(['pending', 'verified', 'rejected'], 'Status: pending, verified, atau rejected.'),
+  ),
+  q: search,
+  ...pagination,
+});
+const listReviewsSchema = z.object({
+  hidden: blank(z.enum(['true', 'false'], 'hidden harus true atau false.')),
+  provider_id: blank(z.uuid('provider_id harus berupa UUID.')),
+  ...pagination,
+});
+const listUsersSchema = z.object({
+  role: blank(z.enum(['customer', 'provider', 'admin'], 'Peran: customer, provider, atau admin.')),
+  status: blank(z.enum(['active', 'suspended'], 'Status: active atau suspended.')),
+  q: search,
+  ...pagination,
+});
+
+/** Mengirim satu halaman daftar dengan meta yang sama seperti GET /bookings dan /services. */
+function sendPage(res, { items, total }, { page, limit }, toItem) {
+  return sendSuccess(res, items.map(toItem), {
+    meta: { page, limit, total_items: total, total_pages: Math.ceil(total / limit) },
+  });
+}
+
 const suspendSchema = z.object({ reason: note(10, 'Alasan penangguhan') });
 const activateSchema = z.object({ reason: note(1, 'Catatan').optional() });
 
@@ -135,6 +170,69 @@ function createAdminRouter({ admin, users }) {
         average_rating: Number(data.reviews.average),
       },
     });
+  });
+
+  // GET /admin/providers — tabel verifikasi mitra
+  router.get('/providers', async (req, res) => {
+    const { page = 1, limit = 12, ...query } = validate(listProvidersSchema, req.query);
+    const result = await admin.listProviders({ ...query, page, limit });
+    return sendPage(res, result, { page, limit }, (row) => ({
+      id: row.id,
+      display_name: row.display_name,
+      alumni_reg_no: row.alumni_reg_no,
+      city: row.city,
+      district: row.district,
+      has_location: Boolean(row.has_location),
+      verification_status: row.verification_status,
+      verified_at: row.verified_at,
+      rating_avg: Number(row.rating_avg),
+      rating_count: Number(row.rating_count),
+      created_at: row.created_at,
+      user: {
+        id: row.user_id,
+        name: row.full_name,
+        email: row.email,
+        phone: row.phone,
+        status: row.user_status,
+      },
+    }));
+  });
+
+  // GET /admin/reviews — tabel moderasi ulasan
+  router.get('/reviews', async (req, res) => {
+    const { page = 1, limit = 12, ...query } = validate(listReviewsSchema, req.query);
+    const result = await admin.listReviews({
+      hidden: query.hidden === undefined ? undefined : query.hidden === 'true',
+      providerId: query.provider_id,
+      page,
+      limit,
+    });
+    return sendPage(res, result, { page, limit }, (row) => ({
+      id: row.id,
+      booking_id: row.booking_id,
+      rating: Number(row.rating),
+      comment: row.comment,
+      is_hidden: Boolean(row.is_hidden),
+      hidden_reason: row.hidden_reason,
+      created_at: row.created_at,
+      provider: { id: row.provider_id, display_name: row.provider_name },
+      customer: { id: row.customer_id, name: row.customer_name },
+    }));
+  });
+
+  // GET /admin/users — tabel akun untuk penangguhan
+  router.get('/users', async (req, res) => {
+    const { page = 1, limit = 12, ...query } = validate(listUsersSchema, req.query);
+    const result = await admin.listUsers({ ...query, page, limit });
+    return sendPage(res, result, { page, limit }, (row) => ({
+      id: row.id,
+      role: row.role,
+      name: row.full_name,
+      email: row.email,
+      phone: row.phone,
+      status: row.status,
+      created_at: row.created_at,
+    }));
   });
 
   // POST /admin/providers — akun mitra dibuat admin (API-04)

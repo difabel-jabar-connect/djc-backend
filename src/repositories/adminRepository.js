@@ -1,6 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const db = require('../config/db');
-const { recomputeProviderRating } = require('./reviewRepository');
+const { lockProvider, recomputeProviderRating } = require('./reviewRepository');
 
 async function inTransaction(fn) {
   const connection = await db.getPool().getConnection();
@@ -44,6 +44,102 @@ async function dashboard() {
      FROM reviews`,
   );
   return { users, providers, bookings, reviews };
+}
+
+/** COUNT + halaman data untuk daftar admin. `from` sudah berisi FROM/JOIN/WHERE. */
+async function paginate({ columns, from, params, orderBy, page, limit }) {
+  const pool = db.getPool();
+  const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total ${from}`, params);
+  const [rows] = await pool.query(
+    `SELECT ${columns} ${from} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+    [...params, limit, (page - 1) * limit],
+  );
+  return { items: rows, total: Number(total) };
+}
+
+function whereClause(conditions) {
+  return conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+}
+
+/**
+ * Daftar mitra untuk tabel verifikasi (FR-ADM-02): nomor alumni dan kontak akun ikut
+ * dikirim karena admin perlu meninjaunya. Yang menunggu paling lama tampil lebih dulu.
+ */
+async function listProviders({ status, q, page, limit }) {
+  const conditions = [];
+  const params = [];
+  if (status) {
+    conditions.push('p.verification_status = ?');
+    params.push(status);
+  }
+  if (q) {
+    conditions.push('(p.display_name LIKE ? OR u.email LIKE ? OR p.alumni_reg_no LIKE ?)');
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  return paginate({
+    columns: `p.id, p.user_id, p.display_name, p.alumni_reg_no, p.city, p.district,
+              p.address_detail IS NOT NULL AND p.lat IS NOT NULL AS has_location,
+              p.verification_status, p.verified_at, p.rating_avg, p.rating_count, p.created_at,
+              u.full_name, u.email, u.phone, u.status AS user_status`,
+    from: `FROM provider_profiles p JOIN users u ON u.id = p.user_id ${whereClause(conditions)}`,
+    params,
+    orderBy: 'p.created_at ASC, p.id ASC',
+    page,
+    limit,
+  });
+}
+
+/** Daftar ulasan untuk moderasi (FR-ADM-04), termasuk yang disembunyikan. Terbaru dulu. */
+async function listReviews({ hidden, providerId, page, limit }) {
+  const conditions = [];
+  const params = [];
+  if (hidden !== undefined) {
+    conditions.push('r.is_hidden = ?');
+    params.push(hidden);
+  }
+  if (providerId) {
+    conditions.push('r.provider_id = ?');
+    params.push(providerId);
+  }
+  return paginate({
+    columns: `r.id, r.booking_id, r.rating, r.comment, r.is_hidden, r.hidden_reason, r.created_at,
+              r.provider_id, p.display_name AS provider_name,
+              r.customer_id, c.full_name AS customer_name`,
+    from: `FROM reviews r
+           JOIN provider_profiles p ON p.id = r.provider_id
+           JOIN users c ON c.id = r.customer_id
+           ${whereClause(conditions)}`,
+    params,
+    orderBy: 'r.created_at DESC, r.id DESC',
+    page,
+    limit,
+  });
+}
+
+/** Daftar akun untuk penangguhan (FR-ADM-05). password_hash tidak pernah dipilih. */
+async function listUsers({ role, status, q, page, limit }) {
+  const conditions = [];
+  const params = [];
+  if (role) {
+    conditions.push('role = ?');
+    params.push(role);
+  }
+  if (status) {
+    conditions.push('status = ?');
+    params.push(status);
+  }
+  if (q) {
+    conditions.push('(full_name LIKE ? OR email LIKE ?)');
+    params.push(`%${q}%`, `%${q}%`);
+  }
+  return paginate({
+    columns: 'id, role, full_name, email, phone, status, created_at',
+    from: `FROM users ${whereClause(conditions)}`,
+    params,
+    orderBy: 'created_at DESC, id DESC',
+    page,
+    limit,
+  });
 }
 
 async function findUser(id) {
@@ -140,6 +236,7 @@ async function findReview(id) {
 /** Menyembunyikan/menampilkan ulasan lalu menghitung ulang rating provider (FR-ADM-04). */
 async function setReviewHidden({ adminId, review, hidden, reason }) {
   await inTransaction(async (connection) => {
+    await lockProvider(connection, review.provider_id);
     await connection.query(
       'UPDATE reviews SET is_hidden = ?, hidden_by = ?, hidden_reason = ? WHERE id = ?',
       [hidden, hidden ? adminId : null, hidden ? reason : null, review.id],
@@ -204,6 +301,9 @@ async function setUserStatus({ adminId, user, status, reason }) {
 
 module.exports = {
   dashboard,
+  listProviders,
+  listReviews,
+  listUsers,
   findUser,
   findProviderProfile,
   createProvider,

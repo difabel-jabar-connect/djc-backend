@@ -100,6 +100,59 @@ function fakeAdmin() {
           reviews: { total: 4, hidden: '1', average: '4.3' },
         };
       },
+      listCalls: [],
+      async listProviders(query) {
+        this.listCalls.push(['providers', query]);
+        return {
+          total: 13,
+          items: [
+            {
+              id: complete.id,
+              user_id: provider.id,
+              display_name: 'Deni',
+              alumni_reg_no: 'ALM-001',
+              city: 'Kota Bekasi',
+              district: null,
+              has_location: 1,
+              verification_status: 'pending',
+              verified_at: null,
+              rating_avg: '0.0',
+              rating_count: 0,
+              created_at: '2026-10-20T00:00:00.000Z',
+              full_name: 'Deni',
+              email: 'deni@djc.test',
+              phone: '+6281200000001',
+              user_status: 'active',
+              password_hash: 'tidak-boleh-terkirim',
+            },
+          ],
+        };
+      },
+      async listReviews(query) {
+        this.listCalls.push(['reviews', query]);
+        return {
+          total: 1,
+          items: [
+            {
+              id: review.id,
+              booking_id: randomUUID(),
+              rating: 1,
+              comment: 'Buruk',
+              is_hidden: 0,
+              hidden_reason: null,
+              created_at: '2026-10-21T00:00:00.000Z',
+              provider_id: complete.id,
+              provider_name: 'Deni',
+              customer_id: customer.id,
+              customer_name: 'Budi',
+            },
+          ],
+        };
+      },
+      async listUsers(query) {
+        this.listCalls.push(['users', query]);
+        return { total: 0, items: [] };
+      },
       async findUser(id) {
         return userRows.get(id) ?? null;
       },
@@ -324,4 +377,91 @@ test('suspend: wajib alasan, tidak bisa diri sendiri atau admin lain, booking ak
     repo.actions.map((a) => a.action),
     ['suspend_user', 'activate_user'],
   );
+});
+
+test('GET /admin/providers: daftar mitra dengan nomor alumni, filter status, dan meta halaman', async () => {
+  const { app, repo } = setup();
+
+  const res = await request(app)
+    .get('/api/v1/admin/providers?status=pending&q=deni&page=2&limit=5')
+    .set('Authorization', bearer(admin));
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(repo.listCalls[0], [
+    'providers',
+    { status: 'pending', q: 'deni', page: 2, limit: 5 },
+  ]);
+  assert.deepEqual(res.body.meta, { page: 2, limit: 5, total_items: 13, total_pages: 3 });
+  assert.deepEqual(res.body.data[0], {
+    id: repo.complete.id,
+    display_name: 'Deni',
+    alumni_reg_no: 'ALM-001',
+    city: 'Kota Bekasi',
+    district: null,
+    has_location: true,
+    verification_status: 'pending',
+    verified_at: null,
+    rating_avg: 0,
+    rating_count: 0,
+    created_at: '2026-10-20T00:00:00.000Z',
+    user: {
+      id: provider.id,
+      name: 'Deni',
+      email: 'deni@djc.test',
+      phone: '+6281200000001',
+      status: 'active',
+    },
+  });
+
+  const bad = await request(app)
+    .get('/api/v1/admin/providers?status=aktif&limit=100')
+    .set('Authorization', bearer(admin));
+  assert.equal(bad.status, 400);
+  assert.deepEqual(bad.body.error.details.map((d) => d.field).sort(), ['limit', 'status']);
+});
+
+test('GET /admin/reviews: termasuk ulasan tersembunyi, filter hidden dan provider_id', async () => {
+  const { app, repo } = setup();
+
+  const res = await request(app)
+    .get(`/api/v1/admin/reviews?hidden=false&provider_id=${repo.complete.id}`)
+    .set('Authorization', bearer(admin));
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(repo.listCalls[0], [
+    'reviews',
+    { hidden: false, providerId: repo.complete.id, page: 1, limit: 12 },
+  ]);
+  assert.equal(res.body.data[0].is_hidden, false);
+  assert.deepEqual(res.body.data[0].provider, { id: repo.complete.id, display_name: 'Deni' });
+  assert.deepEqual(res.body.data[0].customer, { id: customer.id, name: 'Budi' });
+
+  const bad = await request(app)
+    .get('/api/v1/admin/reviews?hidden=ya&provider_id=123')
+    .set('Authorization', bearer(admin));
+  assert.equal(bad.status, 400);
+});
+
+test('GET /admin/users: hasil kosong tetap 200, hanya admin', async () => {
+  const { app, repo } = setup();
+
+  const res = await request(app)
+    .get('/api/v1/admin/users?role=provider&status=suspended&q=')
+    .set('Authorization', bearer(admin));
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, {
+    data: [],
+    meta: { page: 1, limit: 12, total_items: 0, total_pages: 0 },
+  });
+  assert.deepEqual(repo.listCalls[0], [
+    'users',
+    { role: 'provider', status: 'suspended', q: undefined, page: 1, limit: 12 },
+  ]);
+
+  for (const path of ['/providers', '/reviews', '/users']) {
+    const forbidden = await request(app)
+      .get(`/api/v1/admin${path}`)
+      .set('Authorization', bearer(customer));
+    assert.equal(forbidden.status, 403, path);
+  }
 });
