@@ -7,6 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const request = require('supertest');
+const { createTestCategory, deleteTestCategory } = require('./helpers/testCategory');
 
 test(
   'profil provider, koordinat publik, dan jadwal ke database',
@@ -28,6 +29,7 @@ test(
       await knex('provider_availability').where({ provider_id: profileId }).del();
       await knex('provider_profiles').where({ id: profileId }).del();
       await knex('users').where({ id: userId }).del();
+      await deleteTestCategory(knex, suffix);
       await knex.destroy();
       await db.closePool();
     });
@@ -92,7 +94,7 @@ test(
     ]);
 
     // Layanan aktif dari kategori nonaktif tidak tampil di profil publik (sama dengan L1).
-    const activeCategory = await knex('categories').where({ is_active: true }).first();
+    const activeCategory = await createTestCategory(knex, suffix);
     await knex('categories').insert({
       id: inactiveCategoryId,
       name: `Uji Nonaktif ${suffix}`,

@@ -7,6 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const request = require('supertest');
+const { createTestCategory, deleteTestCategory } = require('./helpers/testCategory');
 
 test(
   'pencarian dan detail layanan ke database',
@@ -33,12 +34,13 @@ test(
       await knex('provider_availability').whereIn('provider_id', [ids.verified, ids.pending]).del();
       await knex('provider_profiles').whereIn('id', [ids.verified, ids.pending]).del();
       await knex('users').whereIn('id', [ids.verifiedUser, ids.pendingUser]).del();
+      await deleteTestCategory(knex, suffix);
       await knex.destroy();
       await db.closePool();
     });
 
     await knex.migrate.latest();
-    const category = await knex('categories').where({ is_active: true }).first();
+    const category = await createTestCategory(knex, suffix);
     await knex('users').insert(
       [ids.verifiedUser, ids.pendingUser].map((id, index) => ({
         id,
