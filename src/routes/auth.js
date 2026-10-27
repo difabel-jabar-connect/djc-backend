@@ -5,6 +5,7 @@ const { z } = require('zod');
 const env = require('../config/env');
 const { requireAuth } = require('../middlewares/auth');
 const createGoogleAuthRouter = require('./googleAuth');
+const crypto = require('node:crypto');
 const { ApiError, sendSuccess } = require('../utils/response');
 const { validate } = require('../utils/validate');
 const {
@@ -23,6 +24,11 @@ const email = z
   .max(255, 'Email maksimal 255 karakter.')
   .pipe(z.email('Format email tidak valid.'));
 
+const phone = z
+  .string('Nomor telepon wajib diisi.')
+  .trim()
+  .regex(/^\+62\d{8,13}$/, 'Nomor telepon harus diawali +62, contoh +6281234567890.');
+
 const password = z
   .string('Kata sandi wajib diisi.')
   .min(8, 'Kata sandi minimal 8 karakter.')
@@ -37,12 +43,27 @@ const registerSchema = z.object({
     .min(2, 'Nama lengkap minimal 2 karakter.')
     .max(100, 'Nama lengkap maksimal 100 karakter.'),
   email,
-  phone: z
-    .string('Nomor telepon wajib diisi.')
-    .trim()
-    .regex(/^\+62\d{8,13}$/, 'Nomor telepon harus diawali +62, contoh +6281234567890.'),
+  phone,
   password,
 });
+
+// Body dari tombol Google di frontend (popup Google Identity Services). `city`/`category`
+// dikirim form Mitra dan diabaikan karena pendaftaran Google hanya untuk customer.
+// Daftar wajib menyertakan nomor telepon (kolom users.phone wajib, Google tidak memberikannya).
+const googleSchema = z
+  .object({
+    code: z
+      .string('Kode Google wajib diisi.')
+      .min(1, 'Kode Google wajib diisi.')
+      .max(2048, 'Kode Google tidak valid.'),
+    intent: z.enum(['login', 'register'], 'intent harus login atau register.'),
+    phone: phone.optional(),
+  })
+  .superRefine((body, ctx) => {
+    if (body.intent === 'register' && !body.phone) {
+      ctx.addIssue({ code: 'custom', path: ['phone'], message: 'Nomor telepon wajib diisi.' });
+    }
+  });
 
 const loginSchema = z.object({
   email,
@@ -117,14 +138,7 @@ function createAuthRouter({ users, mailer, googleOAuth, loginLimit = 10, resetLi
 
   // A1 POST /auth/register — hanya customer. Akun mitra dibuat admin (API-04).
   router.post('/register', async (req, res) => {
-    const role = req.body?.role;
-    if (role !== undefined && role !== 'customer') {
-      throw new ApiError(
-        403,
-        'FORBIDDEN',
-        'Akun mitra dibuat oleh admin. Silakan hubungi pengelola.',
-      );
-    }
+    rejectNonCustomer(req.body?.role);
     const body = validate(registerSchema, req.body);
 
     if (await users.findByEmail(body.email)) throw emailTaken();
@@ -170,7 +184,61 @@ function createAuthRouter({ users, mailer, googleOAuth, loginLimit = 10, resetLi
     });
   });
 
-  // A7 GET /auth/google dan /auth/google/callback (login dengan Google).
+  // A8 POST /auth/google — masuk/daftar dengan Google lewat popup: frontend mengirim
+  // authorization code, backend menukarnya (redirect_uri "postmessage") dan memverifikasi id_token.
+  router.post('/google', loginLimiter, async (req, res) => {
+    if (req.body?.intent === 'register') rejectNonCustomer(req.body?.role);
+    const body = validate(googleSchema, req.body);
+    if (!googleOAuth.configured) {
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Masuk dengan Google belum tersedia.');
+    }
+
+    let profile;
+    try {
+      profile = await googleOAuth.profileFromCode(body.code, { redirectUri: 'postmessage' });
+    } catch (error) {
+      if (!env.isTest) console.warn(`[google] login gagal: ${error.message}`);
+      throw new ApiError(
+        401,
+        'INVALID_CREDENTIALS',
+        'Gagal masuk dengan Google. Silakan coba lagi.',
+      );
+    }
+
+    let user = await users.findByEmail(profile.email);
+    let status = 200;
+    if (body.intent === 'login' && !user) {
+      throw new ApiError(404, 'NOT_FOUND', 'Akun Google ini belum terdaftar. Silakan daftar.');
+    }
+    if (body.intent === 'register') {
+      if (user) throw emailTaken();
+      // Akun Google tidak punya kata sandi: diisi hash acak. Pemilik bisa membuat kata sandi
+      // lewat Lupa Kata Sandi bila ingin masuk dengan email.
+      const passwordHash = await bcrypt.hash(
+        crypto.randomBytes(32).toString('base64url'),
+        env.auth.bcryptSaltRounds,
+      );
+      try {
+        user = await users.createUser({
+          fullName: (profile.name || profile.email.split('@')[0]).slice(0, 100),
+          email: profile.email,
+          phone: body.phone,
+          passwordHash,
+        });
+      } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') throw emailTaken();
+        throw error;
+      }
+      status = 201;
+    }
+
+    // Sama dengan login biasa tanpa "Ingat saya". Akun suspended tetap boleh masuk (API-03).
+    const { token, expiresAt } = signToken(user);
+    setTokenCookie(res, token, { expiresAt });
+    return sendSuccess(res, { user: toAuthUser(user) }, { status });
+  });
+
+  // A7 GET /auth/google dan /auth/google/callback (login dengan Google, alur redirect).
   router.use('/google', createGoogleAuthRouter({ users, googleOAuth }));
 
   // A3 POST /auth/logout
@@ -236,6 +304,16 @@ function createAuthRouter({ users, mailer, googleOAuth, loginLimit = 10, resetLi
   });
 
   return router;
+}
+
+function rejectNonCustomer(role) {
+  if (role !== undefined && role !== 'customer') {
+    throw new ApiError(
+      403,
+      'FORBIDDEN',
+      'Akun mitra dibuat oleh admin. Silakan hubungi pengelola.',
+    );
+  }
 }
 
 function emailTaken() {
