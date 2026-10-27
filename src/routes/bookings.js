@@ -22,6 +22,16 @@ function todayInJakarta(now) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(now);
 }
 
+/** Jam sekarang di WIB, "HH:mm". */
+function timeInJakarta(now) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jakarta',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(now);
+}
+
 /** DATE dari mysql2 (Date UTC tengah malam) atau string → "YYYY-MM-DD". */
 function dateOnly(value) {
   return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
@@ -245,8 +255,13 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
     const fieldError = (field, message) =>
       new ApiError(400, 'VALIDATION_ERROR', 'Data yang dikirim belum valid.', [{ field, message }]);
 
-    if (body.scheduled_date < todayInJakarta(now())) {
+    const current = now();
+    const today = todayInJakarta(current);
+    if (body.scheduled_date < today) {
       throw fieldError('scheduled_date', 'Tanggal pesanan tidak boleh di masa lalu.');
+    }
+    if (body.scheduled_date === today && body.start_time < timeInJakarta(current)) {
+      throw fieldError('start_time', 'Jam yang dipilih sudah lewat.');
     }
     if (service.service_mode !== 'both' && service.service_mode !== body.service_mode) {
       throw fieldError('service_mode', 'Mode layanan ini tidak tersedia untuk penyedia jasa ini.');
@@ -390,13 +405,21 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
     if (!allowed.includes(current.status)) throw invalidTransition(current.status, what);
   };
 
-  // S1 accept: requested → accepted
+  // S1 accept: requested → accepted, tidak boleh bentrok dengan pesanan lain yang sudah
+  // diterima/berjalan di tanggal dan jam yang sama (dicek di transaksi yang sama).
   action('accept', ({ viewer }) => {
     providerOnly(viewer, 'menerima');
     return {
       to: 'accepted',
-      decide: (current) => {
+      decide: async (current, { hasScheduleConflict }) => {
         requireStatus(current, ['requested'], 'diterima');
+        if (await hasScheduleConflict()) {
+          throw new ApiError(
+            409,
+            'CONFLICT',
+            'Anda sudah menerima pesanan lain pada tanggal dan jam yang sama.',
+          );
+        }
         return {};
       },
     };
@@ -521,4 +544,10 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
   return router;
 }
 
-module.exports = { createBookingsRouter, shortName, todayInJakarta, contactAccess };
+module.exports = {
+  createBookingsRouter,
+  shortName,
+  todayInJakarta,
+  timeInJakarta,
+  contactAccess,
+};

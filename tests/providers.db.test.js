@@ -20,8 +20,11 @@ test(
     const suffix = randomUUID().slice(0, 8);
     const userId = randomUUID();
     const profileId = randomUUID();
+    const inactiveCategoryId = randomUUID();
 
     t.after(async () => {
+      await knex('services').where({ provider_id: profileId }).del();
+      await knex('categories').where({ id: inactiveCategoryId }).del();
       await knex('provider_availability').where({ provider_id: profileId }).del();
       await knex('provider_profiles').where({ id: profileId }).del();
       await knex('users').where({ id: userId }).del();
@@ -88,11 +91,37 @@ test(
       { day_of_week: 6, start_time: '09:00', end_time: '12:00' },
     ]);
 
+    // Layanan aktif dari kategori nonaktif tidak tampil di profil publik (sama dengan L1).
+    const activeCategory = await knex('categories').where({ is_active: true }).first();
+    await knex('categories').insert({
+      id: inactiveCategoryId,
+      name: `Uji Nonaktif ${suffix}`,
+      slug: `uji-nonaktif-${suffix}`,
+      is_active: false,
+    });
+    const service = (categoryId, title) => ({
+      id: randomUUID(),
+      provider_id: profileId,
+      category_id: categoryId,
+      title,
+      pricing_type: 'fixed',
+      price_amount: 50000,
+      service_mode: 'at_provider',
+    });
+    await knex('services').insert([
+      service(activeCategory.id, 'Uji kategori aktif'),
+      service(inactiveCategoryId, 'Uji kategori nonaktif'),
+    ]);
+
     const publicProfile = await request(app).get(`/api/v1/providers/${profileId}`);
     assert.equal(publicProfile.status, 200);
     assert.equal(publicProfile.body.data.public_lat, -6.24);
     assert.equal(publicProfile.body.data.public_lng, 106.98);
     assert.equal(publicProfile.body.data.availability.length, 2);
+    assert.deepEqual(
+      publicProfile.body.data.services.map((item) => item.title),
+      ['Uji kategori aktif'],
+    );
     for (const field of ['lat', 'lng', 'address_detail', 'alumni_reg_no', 'disability_type']) {
       assert.equal(publicProfile.body.data[field], undefined, `${field} tidak boleh publik`);
     }

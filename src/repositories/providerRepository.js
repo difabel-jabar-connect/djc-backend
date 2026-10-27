@@ -52,7 +52,7 @@ async function findPublicById(id) {
             sv.pricing_type, sv.price_amount, sv.min_hours, sv.duration_estimate_min,
             sv.service_mode
      FROM services sv JOIN categories c ON c.id = sv.category_id
-     WHERE sv.provider_id = ? AND sv.is_active = TRUE
+     WHERE sv.provider_id = ? AND sv.is_active = TRUE AND c.is_active = TRUE
      ORDER BY sv.created_at`,
     [id],
   );

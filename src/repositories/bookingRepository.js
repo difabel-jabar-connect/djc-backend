@@ -193,8 +193,9 @@ async function list({ customerId, providerId, statuses, page, limit }) {
 }
 
 /**
- * Mengubah status booking dalam transaksi: mengunci baris, memanggil `decide(current)`
- * untuk validasi dan perubahan kolom, lalu menulis riwayat. `decide` boleh melempar error
+ * Mengubah status booking dalam transaksi: mengunci baris, memanggil
+ * `decide(current, { hasScheduleConflict })` untuk validasi dan perubahan kolom, lalu
+ * menulis riwayat. `decide` boleh melempar error
  * (mis. INVALID_TRANSITION) supaya validasi memakai status terbaru, bukan yang dibaca
  * sebelum transaksi.
  */
@@ -202,12 +203,27 @@ async function transition(id, { to, changedBy, decide }) {
   await inTransaction(async (connection) => {
     const [rows] = await connection.query(
       `SELECT id, status, pricing_type_snapshot, unit_price_snapshot, estimated_total,
-              scheduled_date
+              scheduled_date, start_time, provider_id
        FROM bookings WHERE id = ? FOR UPDATE`,
       [id],
     );
     const current = rows[0];
-    const { changes = {}, reason = null } = decide(current);
+    // Dipanggil `decide` saat menerima pesanan. Baris provider dikunci dulu supaya dua
+    // penerimaan bersamaan untuk provider yang sama berjalan bergantian, bukan saling lolos.
+    const hasScheduleConflict = async () => {
+      await connection.query('SELECT id FROM provider_profiles WHERE id = ? FOR UPDATE', [
+        current.provider_id,
+      ]);
+      const [conflicts] = await connection.query(
+        `SELECT id FROM bookings
+         WHERE provider_id = ? AND scheduled_date = ? AND start_time = ? AND id <> ?
+           AND status IN ('accepted', 'in_progress')
+         LIMIT 1`,
+        [current.provider_id, current.scheduled_date, current.start_time, id],
+      );
+      return conflicts.length > 0;
+    };
+    const { changes = {}, reason = null } = await decide(current, { hasScheduleConflict });
     const sets = ['status = ?'];
     const values = [to];
     for (const [column, value] of Object.entries(changes)) {

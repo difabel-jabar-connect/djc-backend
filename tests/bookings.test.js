@@ -142,7 +142,16 @@ function fakeBookings() {
     },
     async transition(id, { to, changedBy, decide }) {
       const row = rows.get(id);
-      const { changes = {}, reason = null } = decide({ ...row });
+      const hasScheduleConflict = async () =>
+        [...rows.values()].some(
+          (other) =>
+            other.id !== id &&
+            other.provider_id === row.provider_id &&
+            other.scheduled_date === row.scheduled_date &&
+            other.start_time === row.start_time &&
+            ['accepted', 'in_progress'].includes(other.status),
+        );
+      const { changes = {}, reason = null } = await decide({ ...row }, { hasScheduleConflict });
       const role = [customer, otherCustomer, providerUser, otherProviderUser].find(
         (u) => u.id === changedBy,
       ).role;
@@ -162,7 +171,7 @@ function setup() {
 const fixedBody = {
   service_id: SERVICES.fixed.id,
   scheduled_date: MONDAY,
-  start_time: '09:00',
+  start_time: '11:00',
   service_mode: 'at_provider',
 };
 
@@ -221,7 +230,7 @@ test('B1 validasi: tanggal lampau, di luar jam, mode tidak tersedia, jam minimum
   const hourly = {
     service_id: SERVICES.hourly.id,
     scheduled_date: MONDAY,
-    start_time: '09:00',
+    start_time: '11:00',
     service_mode: 'at_customer',
     quantity: 3,
     location_area: 'Bekasi Timur',
@@ -252,6 +261,22 @@ test('B1 validasi: tanggal lampau, di luar jam, mode tidak tersedia, jam minimum
   }
 
   assert.equal((await post({ ...fixedBody, service_id: randomUUID() })).status, 404);
+});
+
+test('B1 hari ini: jam yang sudah lewat (WIB) ditolak, jam berikutnya boleh', async () => {
+  const { app } = setup();
+  // NOW = Senin 10.00 WIB; slot 08:00â€“16:00 masih buka, tetapi 09:30 sudah lewat.
+  const late = await request(app)
+    .post('/api/v1/bookings')
+    .set('Authorization', bearer(customer))
+    .send({ ...fixedBody, start_time: '09:30' });
+  assert.equal(late.status, 400);
+  assert.deepEqual(late.body.error.details, [
+    { field: 'start_time', message: 'Jam yang dipilih sudah lewat.' },
+  ]);
+
+  await createBooking(app, { ...fixedBody, start_time: '10:00' });
+  await createBooking(app, { ...fixedBody, scheduled_date: NEXT_MONDAY, start_time: '08:00' });
 });
 
 test('B1 hanya customer aktif: provider 403, customer suspended 403, tanpa login 401', async () => {
@@ -361,6 +386,23 @@ test('state machine: lompat status ditolak 409 INVALID_TRANSITION', async () => 
   );
 });
 
+test('accept ditolak 409 jika provider sudah menerima pesanan lain di jadwal yang sama', async () => {
+  const { app } = setup();
+  const first = await createBooking(app);
+  const second = await createBooking(app, fixedBody, otherCustomer);
+  const otherTime = await createBooking(app, { ...fixedBody, start_time: '13:00' });
+
+  assert.equal((await act(app, providerUser, first.id, 'accept')).status, 200);
+  const clash = await act(app, providerUser, second.id, 'accept');
+  assert.equal(clash.status, 409);
+  assert.equal(clash.body.error.code, 'CONFLICT');
+  assert.equal((await act(app, providerUser, otherTime.id, 'accept')).status, 200);
+
+  // Setelah pesanan pertama dibatalkan, jadwal itu kosong lagi.
+  await act(app, customer, first.id, 'cancel');
+  assert.equal((await act(app, providerUser, second.id, 'accept')).status, 200);
+});
+
 test('reject wajib alasan minimal 10 karakter dan tersimpan sebagai status_reason', async () => {
   const { app } = setup();
   const booking = await createBooking(app);
@@ -402,7 +444,7 @@ test('complete: hourly wajib actual_quantity, starting_from wajib final_total â‰
   const hourly = await toInProgress({
     service_id: SERVICES.hourly.id,
     scheduled_date: MONDAY,
-    start_time: '09:00',
+    start_time: '11:00',
     service_mode: 'at_customer',
     quantity: 2,
     location_area: 'Bekasi Timur',

@@ -606,7 +606,7 @@ Sukses `200`:
 }
 ```
 
-Hanya layanan `is_active = true` yang dikirim. `public_lat`/`public_lng` adalah koordinat asli yang dibulatkan 2 desimal (sekitar 1,1 km); `lat`, `lng`, `address_detail`, `alumni_reg_no`, dan `disability_type` tidak pernah dikirim. Error: `404 NOT_FOUND` jika provider tidak ada, belum verified, atau suspended.
+Hanya layanan `is_active = true` dari kategori aktif yang dikirim. `public_lat`/`public_lng` adalah koordinat asli yang dibulatkan 2 desimal (sekitar 1,1 km); `lat`, `lng`, `address_detail`, `alumni_reg_no`, dan `disability_type` tidak pernah dikirim. Error: `404 NOT_FOUND` jika provider tidak ada, belum verified, atau suspended.
 
 ### P5 `GET /provider/profile` dan `PUT /provider/profile`
 
@@ -746,17 +746,17 @@ Field kontak dan alamat di respons booking mengikuti **access matrix** di `data-
 
 Request body:
 
-| Field                          | Tipe                           | Wajib              | Aturan                                               |
-| ------------------------------ | ------------------------------ | ------------------ | ---------------------------------------------------- |
-| `service_id`                   | uuid                           | ya                 | Layanan aktif milik provider `verified` dan `active` |
-| `scheduled_date`               | `YYYY-MM-DD`                   | ya                 | Tidak di masa lalu                                   |
-| `start_time`                   | `HH:mm`                        | ya                 | Di dalam slot `provider_availability` hari tersebut  |
-| `service_mode`                 | `at_customer` \| `at_provider` | ya                 | Diizinkan oleh `services.service_mode`               |
-| `quantity`                     | number                         | jika hourly        | Jam, ≥ `min_hours`; selain hourly selalu 1           |
-| `location_area`                | string                         | jika `at_customer` | Kecamatan dan kota                                   |
-| `location_address`             | string                         | jika `at_customer` | Alamat lengkap                                       |
-| `location_lat`, `location_lng` | number                         | tidak              | Hanya `at_customer`                                  |
-| `customer_note`                | string                         | tidak              | Maks 500 karakter                                    |
+| Field                          | Tipe                           | Wajib              | Aturan                                                                                                          |
+| ------------------------------ | ------------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `service_id`                   | uuid                           | ya                 | Layanan aktif milik provider `verified` dan `active`                                                            |
+| `scheduled_date`               | `YYYY-MM-DD`                   | ya                 | Tidak di masa lalu                                                                                              |
+| `start_time`                   | `HH:mm`                        | ya                 | Di dalam slot `provider_availability` hari tersebut; jika tanggalnya hari ini, tidak sebelum jam sekarang (WIB) |
+| `service_mode`                 | `at_customer` \| `at_provider` | ya                 | Diizinkan oleh `services.service_mode`                                                                          |
+| `quantity`                     | number                         | jika hourly        | Jam, ≥ `min_hours`; selain hourly selalu 1                                                                      |
+| `location_area`                | string                         | jika `at_customer` | Kecamatan dan kota                                                                                              |
+| `location_address`             | string                         | jika `at_customer` | Alamat lengkap                                                                                                  |
+| `location_lat`, `location_lng` | number                         | tidak              | Hanya `at_customer`                                                                                             |
+| `customer_note`                | string                         | tidak              | Maks 500 karakter                                                                                               |
 
 ```json
 {
@@ -777,13 +777,13 @@ Sukses `201`: objek booking seperti B3.
 
 Error:
 
-| HTTP | `code`              | Contoh pesan                                                                                     |
-| ---- | ------------------- | ------------------------------------------------------------------------------------------------ |
-| 400  | `VALIDATION_ERROR`  | "Jam yang dipilih berada di luar jam operasional penyedia." / "Minimal 2 jam untuk layanan ini." |
-| 401  | `UNAUTHENTICATED`   | "Silakan masuk dengan akun Customer untuk memesan layanan ini."                                  |
-| 403  | `FORBIDDEN`         | Pemanggil bukan customer                                                                         |
-| 403  | `ACCOUNT_SUSPENDED` | "Akun Anda sedang ditangguhkan."                                                                 |
-| 404  | `NOT_FOUND`         | Layanan tidak ada, nonaktif, atau provider tidak publik                                          |
+| HTTP | `code`              | Contoh pesan                                                                                                                       |
+| ---- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `VALIDATION_ERROR`  | "Jam yang dipilih berada di luar jam operasional penyedia." / "Minimal 2 jam untuk layanan ini." / "Jam yang dipilih sudah lewat." |
+| 401  | `UNAUTHENTICATED`   | "Silakan masuk dengan akun Customer untuk memesan layanan ini."                                                                    |
+| 403  | `FORBIDDEN`         | Pemanggil bukan customer                                                                                                           |
+| 403  | `ACCOUNT_SUSPENDED` | "Akun Anda sedang ditangguhkan."                                                                                                   |
+| 404  | `NOT_FOUND`         | Layanan tidak ada, nonaktif, atau provider tidak publik                                                                            |
 
 ### B2 `GET /bookings`
 
@@ -878,13 +878,13 @@ Semua aksi mengembalikan `200` dengan objek booking terbaru (bentuk B3). Error u
 
 Setiap aksi bisa dipanggil dengan `POST` (kontrak ini) maupun `PUT` (issue #11), mis. `PUT /bookings/:id/accept`. Status dibaca ulang dan dikunci (`SELECT … FOR UPDATE`) di dalam transaksi, jadi dua aksi bersamaan tidak bisa melompati state machine. Alasan `cancel` dari provider wajib minimal 10 karakter (sama dengan `reject`); dari customer opsional.
 
-| #   | Endpoint                      | Dari → Ke                      | Peran                                                    | Body                                              | Validasi khusus                                             | Requirement / layar                             |
-| --- | ----------------------------- | ------------------------------ | -------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------- |
-| S1  | `POST /bookings/:id/accept`   | requested → accepted           | Provider pemilik                                         | –                                                 | –                                                           | FR-PROV-07, US-PROV-05; dasbor pesanan provider |
-| S2  | `POST /bookings/:id/reject`   | requested → rejected           | Provider pemilik                                         | `{ "reason": "Kapasitas penuh di jam tersebut" }` | `reason` wajib, minimal 10 karakter (`02-user-flow.md` 3.2) | FR-PROV-07, US-PROV-05                          |
-| S3  | `POST /bookings/:id/start`    | accepted → in_progress         | Provider pemilik                                         | –                                                 | Hari ini ≥ `scheduled_date` (WIB)                           | FR-PROV-08                                      |
-| S4  | `POST /bookings/:id/complete` | in_progress → completed        | Provider pemilik                                         | Lihat bawah                                       | Lihat bawah                                                 | FR-PROV-08, FR-PROV-09, US-PROV-06              |
-| S5  | `POST /bookings/:id/cancel`   | requested/accepted → cancelled | Customer pemilik; provider pemilik hanya dari `accepted` | `{ "reason": "…" }`                               | `reason` wajib jika provider                                | FR-CUST-09, FR-PROV-10                          |
+| #   | Endpoint                      | Dari → Ke                      | Peran                                                    | Body                                              | Validasi khusus                                                                                                         | Requirement / layar                             |
+| --- | ----------------------------- | ------------------------------ | -------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| S1  | `POST /bookings/:id/accept`   | requested → accepted           | Provider pemilik                                         | –                                                 | Tidak ada pesanan lain provider ini yang `accepted`/`in_progress` di tanggal dan jam yang sama, jika ada `409 CONFLICT` | FR-PROV-07, US-PROV-05; dasbor pesanan provider |
+| S2  | `POST /bookings/:id/reject`   | requested → rejected           | Provider pemilik                                         | `{ "reason": "Kapasitas penuh di jam tersebut" }` | `reason` wajib, minimal 10 karakter (`02-user-flow.md` 3.2)                                                             | FR-PROV-07, US-PROV-05                          |
+| S3  | `POST /bookings/:id/start`    | accepted → in_progress         | Provider pemilik                                         | –                                                 | Hari ini ≥ `scheduled_date` (WIB)                                                                                       | FR-PROV-08                                      |
+| S4  | `POST /bookings/:id/complete` | in_progress → completed        | Provider pemilik                                         | Lihat bawah                                       | Lihat bawah                                                                                                             | FR-PROV-08, FR-PROV-09, US-PROV-06              |
+| S5  | `POST /bookings/:id/cancel`   | requested/accepted → cancelled | Customer pemilik; provider pemilik hanya dari `accepted` | `{ "reason": "…" }`                               | `reason` wajib jika provider                                                                                            | FR-CUST-09, FR-PROV-10                          |
 
 Body S4 `complete` menurut tipe harga:
 
