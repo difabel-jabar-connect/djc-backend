@@ -32,6 +32,17 @@ const budi = {
   full_name: 'Budi Santoso',
   email: 'budi@gmail.com',
   status: 'active',
+  email_verified_at: new Date('2026-10-20T00:00:00Z'),
+};
+
+// Didaftarkan lewat form biasa dan belum pernah membuktikan kepemilikan emailnya.
+const siti = {
+  id: randomUUID(),
+  role: 'customer',
+  full_name: 'Siti Aminah',
+  email: 'siti@gmail.com',
+  status: 'active',
+  email_verified_at: null,
 };
 
 /**
@@ -141,7 +152,7 @@ test('callback tanpa redirect mengarah ke halaman awal sesuai peran', async () =
   assert.equal(res.headers.location, `${FRONTEND}/dashboard/provider?google=success`);
 });
 
-test('callback untuk email belum terdaftar mengarah ke Daftar dengan email dan nama', async () => {
+test('callback untuk email belum terdaftar mengarah ke Daftar tanpa data pribadi di URL', async () => {
   const app = createApp({ users: fakeUsers(), googleOAuth: fakeGoogle().oauth });
   const { state, cookie } = await start(app);
 
@@ -152,9 +163,20 @@ test('callback untuk email belum terdaftar mengarah ke Daftar dengan email dan n
   assert.equal(res.status, 302);
   const location = new URL(res.headers.location);
   assert.equal(location.origin + location.pathname, `${FRONTEND}/register`);
-  assert.equal(location.searchParams.get('google'), 'not_registered');
-  assert.equal(location.searchParams.get('email'), 'baru@gmail.com');
-  assert.equal(location.searchParams.get('name'), 'Nama dari Google');
+  assert.equal(location.search, '?google=not_registered');
+  assert.equal(cookieFrom(res, 'djc_token'), undefined);
+});
+
+test('callback untuk akun yang emailnya belum terverifikasi ditolak tanpa sesi', async () => {
+  const app = createApp({ users: fakeUsers(siti), googleOAuth: fakeGoogle().oauth });
+  const { state, cookie } = await start(app);
+
+  const res = await request(app)
+    .get(`/api/v1/auth/google/callback?code=kode-siti@gmail.com&state=${state}`)
+    .set('Cookie', cookie);
+
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.location, `${FRONTEND}/login?google_error=unverified`);
   assert.equal(cookieFrom(res, 'djc_token'), undefined);
 });
 
@@ -219,7 +241,7 @@ function fakeUserStore(...list) {
     async findByEmail(email) {
       return [...list, ...created].find((user) => user.email === email) ?? null;
     },
-    async createUser({ fullName, email, phone, passwordHash }) {
+    async createUser({ fullName, email, phone, passwordHash, emailVerified = false }) {
       const user = {
         id: randomUUID(),
         role: 'customer',
@@ -227,6 +249,7 @@ function fakeUserStore(...list) {
         email,
         phone,
         status: 'active',
+        email_verified_at: emailVerified ? new Date() : null,
       };
       created.push({ ...user, password_hash: passwordHash });
       return user;
@@ -287,6 +310,20 @@ test('POST /auth/google register: membuat customer dengan nama Google dan telepo
   assert.ok(cookieFrom(res, 'djc_token'));
   assert.equal(users.created.length, 1);
   assert.match(users.created[0].password_hash, /^\$2[aby]\$/, 'kata sandi acak ter-hash');
+  assert.ok(users.created[0].email_verified_at, 'email dari Google langsung terverifikasi');
+});
+
+test('POST /auth/google login: email belum terverifikasi 403 tanpa cookie (cegah ambil alih)', async () => {
+  const app = createApp({ users: fakeUserStore(siti), googleOAuth: fakeGoogle().oauth });
+
+  const res = await request(app)
+    .post('/api/v1/auth/google')
+    .send({ code: 'kode-siti@gmail.com', intent: 'login' });
+
+  assert.equal(res.status, 403);
+  assert.equal(res.body.error.code, 'FORBIDDEN');
+  assert.match(res.body.error.message, /Lupa Kata Sandi/);
+  assert.equal(cookieFrom(res, 'djc_token'), undefined);
 });
 
 test('POST /auth/google register: email sudah ada 409, mitra 403, telepon wajib 400', async () => {
