@@ -1,0 +1,63 @@
+# Layanan pendukung untuk development lokal. Nilai ${...} dibaca dari .env.
+#
+#   docker compose up -d                  -> Redis saja (API tetap `npm run dev`, MySQL lokal)
+#   docker compose --profile full up -d   -> Redis + MySQL 8.4 + API, semuanya di Docker
+#
+# MySQL Docker dibuka di port 3308 supaya tidak bentrok dengan MySQL lokal di 3306/3307.
+name: djc
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.4
+    profiles: ['full']
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${DB_NAME:-difabel_jabar_connect}
+      MYSQL_USER: ${DB_USER:-djc}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-djcpass}
+    ports:
+      - '3308:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 -uroot -p"$$MYSQL_ROOT_PASSWORD"']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  api:
+    build: .
+    profiles: ['full']
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      DB_HOST: mysql
+      DB_PORT: 3306
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '5000:5000'
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  mysql-data:

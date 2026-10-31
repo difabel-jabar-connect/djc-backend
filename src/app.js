@@ -4,6 +4,7 @@ const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const env = require('./config/env');
 const db = require('./config/db');
+const redisClient = require('./config/redis');
 const userRepository = require('./repositories/userRepository');
 const providerRepository = require('./repositories/providerRepository');
 const categoryRepository = require('./repositories/categoryRepository');
@@ -13,6 +14,7 @@ const reviewRepository = require('./repositories/reviewRepository');
 const adminRepository = require('./repositories/adminRepository');
 const defaultMailer = require('./services/mailer');
 const { createCloudinary } = require('./services/cloudinary');
+const { createCache } = require('./services/cache');
 const { createGoogleOAuth } = require('./services/googleOAuth');
 const createApiRouter = require('./routes');
 const notFound = require('./middlewares/notFound');
@@ -31,6 +33,10 @@ function createApp({
   mailer = defaultMailer,
   cloudinary = createCloudinary(),
   googleOAuth = createGoogleOAuth(),
+  // Tes memakai null (tanpa Redis) supaya hitungan rate limit tidak terbawa antar-tes.
+  redis = env.isTest ? null : redisClient.getClient(),
+  pingRedis = redis ? () => redis.ping() : null,
+  cache = createCache({ redis }),
   now,
   loginLimit,
   resetLimit,
@@ -68,6 +74,9 @@ function createApp({
       mailer,
       cloudinary,
       googleOAuth,
+      redis,
+      pingRedis,
+      cache,
       now,
       loginLimit,
       resetLimit,

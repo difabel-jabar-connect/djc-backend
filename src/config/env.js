@@ -69,6 +69,14 @@ env.bookings = {
   autoCancelIntervalMinutes: toInt(process.env.AUTO_CANCEL_INTERVAL_MINUTES, 5),
 };
 
+// Redis opsional: rate limit bersama antar-instance dan cache. Kosong = API tetap jalan
+// tanpa Redis (rate limit di memori, tanpa cache). Di Railway, isi dengan REDIS_URL dari plugin Redis.
+env.redis = {
+  url: process.env.REDIS_URL || '',
+  prefix: process.env.REDIS_PREFIX || 'djc:',
+};
+env.redis.enabled = Boolean(env.redis.url);
+
 env.app = {
   // Alamat frontend untuk tautan di email, mis. tautan reset kata sandi.
   frontendUrl: (process.env.FRONTEND_URL || env.corsOrigins[0] || '').replace(/\/+$/, ''),

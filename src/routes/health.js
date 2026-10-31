@@ -1,7 +1,11 @@
 const express = require('express');
 const { sendSuccess } = require('../utils/response');
 
-function createHealthRouter({ pingDb }) {
+/**
+ * `pingRedis` null berarti Redis tidak dipakai (REDIS_URL kosong). Redis mati membuat status
+ * `degraded` tetapi tetap HTTP 200, karena API masih melayani request tanpa Redis.
+ */
+function createHealthRouter({ pingDb, pingRedis = null }) {
   const router = express.Router();
 
   router.get('/', async (req, res) => {
@@ -12,10 +16,20 @@ function createHealthRouter({ pingDb }) {
       database = 'down';
     }
 
-    const status = database === 'up' ? 'ok' : 'degraded';
+    let redis = 'disabled';
+    if (pingRedis) {
+      try {
+        await pingRedis();
+        redis = 'up';
+      } catch {
+        redis = 'down';
+      }
+    }
+
+    const status = database === 'up' && redis !== 'down' ? 'ok' : 'degraded';
     return sendSuccess(
       res,
-      { status, database, timestamp: new Date().toISOString() },
+      { status, database, redis, timestamp: new Date().toISOString() },
       { status: database === 'up' ? 200 : 503 },
     );
   });
