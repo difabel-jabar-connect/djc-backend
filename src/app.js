@@ -5,8 +5,14 @@ const helmet = require('helmet');
 const env = require('./config/env');
 const db = require('./config/db');
 const userRepository = require('./repositories/userRepository');
+const providerRepository = require('./repositories/providerRepository');
 const categoryRepository = require('./repositories/categoryRepository');
+const serviceRepository = require('./repositories/serviceRepository');
+const bookingRepository = require('./repositories/bookingRepository');
+const reviewRepository = require('./repositories/reviewRepository');
+const adminRepository = require('./repositories/adminRepository');
 const defaultMailer = require('./services/mailer');
+const { createCloudinary } = require('./services/cloudinary');
 const { createGoogleOAuth } = require('./services/googleOAuth');
 const createApiRouter = require('./routes');
 const notFound = require('./middlewares/notFound');
@@ -16,9 +22,16 @@ const errorHandler = require('./middlewares/errorHandler');
 function createApp({
   pingDb = db.ping,
   users = userRepository,
+  providers = providerRepository,
   categories = categoryRepository,
+  services = serviceRepository,
+  bookings = bookingRepository,
+  reviews = reviewRepository,
+  admin = adminRepository,
   mailer = defaultMailer,
+  cloudinary = createCloudinary(),
   googleOAuth = createGoogleOAuth(),
+  now,
   loginLimit,
   resetLimit,
 } = {}) {
@@ -34,12 +47,31 @@ function createApp({
       credentials: true,
     }),
   );
-  app.use(express.json({ limit: '1mb' }));
+  // Endpoint upload gambar memakai parser JSON sendiri dengan batas lebih besar
+  // (src/routes/providerMedia.js); endpoint lain tetap dibatasi 1 MB.
+  const jsonBody = express.json({ limit: '1mb' });
+  const uploadPaths = /^\/api\/v1\/provider\/(photo|portfolio)\/?$/;
+  app.use((req, res, next) => (uploadPaths.test(req.path) ? next() : jsonBody(req, res, next)));
   app.use(cookieParser());
 
   app.use(
     '/api/v1',
-    createApiRouter({ pingDb, users, categories, mailer, googleOAuth, loginLimit, resetLimit }),
+    createApiRouter({
+      pingDb,
+      users,
+      providers,
+      categories,
+      services,
+      bookings,
+      reviews,
+      admin,
+      mailer,
+      cloudinary,
+      googleOAuth,
+      now,
+      loginLimit,
+      resetLimit,
+    }),
   );
 
   app.use(notFound);

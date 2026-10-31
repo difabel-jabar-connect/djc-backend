@@ -2,7 +2,7 @@
 
 REST API Difabel Jabar Connect, marketplace jasa berbasis lokasi bagi alumni penyandang disabilitas di Jawa Barat. Node.js + Express dengan database MySQL 8, di-deploy ke Railway, sesuai keputusan stack Week 1 (`docs/project-management/meeting-notes/2026-10-04-week-1-decisions.md` dan `docs/technical/stack-comparison.md` di repository dokumentasi [deonaja/difabel-jabar-connect](https://github.com/deonaja/difabel-jabar-connect)).
 
-Status: repository disiapkan melalui deonaja/difabel-jabar-connect#13; fondasi Express/MySQL dan API contract ditambahkan melalui deonaja/difabel-jabar-connect#15. Yang sudah ada: `GET /api/v1/health`, auth (register, login, logout, me, lupa/reset kata sandi), dan kategori (daftar publik, kelola admin); endpoint fitur mengikuti [`docs/api-contract.md`](docs/api-contract.md).
+Status: repository disiapkan melalui deonaja/difabel-jabar-connect#13; fondasi Express/MySQL dan API contract ditambahkan melalui deonaja/difabel-jabar-connect#15. Yang sudah ada: `GET /api/v1/health`, auth (register, login, logout, me, lupa/reset kata sandi, Google OAuth), kategori (daftar publik, kelola admin), profil provider (jadwal, foto, portofolio), pencarian layanan, booking (pemesanan dan status), review, dan admin (dasbor, verifikasi, moderasi, suspend); endpoint fitur mengikuti [`docs/api-contract.md`](docs/api-contract.md).
 
 Baca [CONTRIBUTING.md](CONTRIBUTING.md) sebelum membuat branch atau pull request.
 
@@ -95,6 +95,8 @@ Jika SMTP di `.env` belum diisi, link reset muncul di terminal backend (`[mailer
 
 Gmail membatasi sekitar 500 email per hari. Penyedia email final masih menunggu STK-OPN-03. Paket Railway yang lebih rendah bisa memblokir SMTP keluar; jika begitu, production perlu API email berbasis HTTP (mis. Resend atau Brevo) di balik fungsi `sendPasswordReset` yang sama di `src/services/mailer.js`.
 
+<<<<<<< HEAD
+
 ### Login dengan Google
 
 Tombol Google di frontend membuka `GET /api/v1/auth/google?redirect=/path`. Backend mengarahkan ke Google, lalu `/api/v1/auth/google/callback` memasang cookie `djc_token` (email terdaftar) atau mengarahkan ke `/register?google=not_registered&email=…&name=…` (email belum terdaftar). Detail di API contract A7.
@@ -112,7 +114,10 @@ Frontend memakai popup Google Identity Services: tombol mengirim `code` ke `POST
 
 Detail di API contract A8. Tanpa client ID/secret, `GET` kembali ke `/login?google_error=unavailable` dan `POST` dijawab `503`.
 
-Coba dari terminal setelah `npm run db:seed` (PowerShell: pakai `curl.exe`):
+=======
+
+> > > > > > > origin/fix/admin-lists-review-locks
+> > > > > > > Coba dari terminal setelah `npm run db:seed` (PowerShell: pakai `curl.exe`):
 
 ```bash
 curl -c cookie.txt -H "Content-Type: application/json" \
@@ -162,6 +167,70 @@ DB_TEST=1 npm test            # PowerShell: $env:DB_TEST=1; npm test
 | `PUT /api/v1/admin/categories/:id` | Admin mengubah kategori atau menonaktifkannya (`is_active: false`) |
 
 Nama atau slug yang sudah dipakai ditolak `409`. Setiap perubahan admin dicatat di `admin_actions`. Coba dengan akun demo `admin@djc.test` / `Demo12345`.
+
+<<<<<<< HEAD
+=======
+
+## Pencarian layanan
+
+| Endpoint                   | Fungsi                                                         |
+| -------------------------- | -------------------------------------------------------------- |
+| `GET /api/v1/services`     | Cari layanan dengan kata kunci, filter, urutan, dan pagination |
+| `GET /api/v1/services/:id` | Detail layanan beserta jadwal provider                         |
+
+Filter: `q`, `category_id` atau `category` (slug), `city`, `min_price`, `max_price`, `min_rating`, `day_of_week`, `sort` (`newest`, `price_asc`, `price_desc`, `rating_desc`), `page`, `limit` (maks 50). Hanya layanan aktif milik provider verified yang tampil, dan koordinat provider hanya `public_lat`/`public_lng`. Contoh: `http://localhost:5000/api/v1/services?category=jahit&sort=price_asc`.
+
+## Booking
+
+| Endpoint                                            | Fungsi                                                             |
+| --------------------------------------------------- | ------------------------------------------------------------------ |
+| `POST /api/v1/bookings`                             | Customer memesan layanan (status awal `requested`)                 |
+| `GET /api/v1/bookings`                              | Daftar pesanan milik customer atau yang masuk ke provider          |
+| `GET /api/v1/bookings/:id`                          | Detail pesanan beserta riwayat status                              |
+| `PUT`/`POST /api/v1/bookings/:id/accept`, `reject`  | Provider menerima atau menolak (`reason` wajib) pesanan            |
+| `PUT`/`POST /api/v1/bookings/:id/start`, `complete` | Provider memulai dan menyelesaikan pesanan                         |
+| `POST /api/v1/bookings/:id/reviews`                 | Customer memberi rating 1–5 dan ulasan setelah pesanan selesai     |
+| `PUT`/`POST /api/v1/bookings/:id/cancel`            | Customer (requested/accepted) atau provider (accepted) membatalkan |
+
+Alur status: `requested → accepted → in_progress → completed`, ditambah `rejected` dan `cancelled`. Lompatan status ditolak `409 INVALID_TRANSITION`, dan setiap perubahan dicatat di `booking_status_history` dalam transaksi yang sama. Telepon dan alamat lawan transaksi hanya terbuka saat status `accepted` atau `in_progress`, lalu dikunci lagi setelah selesai, ditolak, atau dibatalkan (BE-07); admin tidak melihat kontak atau alamat. Satu ulasan per pesanan; `rating_avg`/`rating_count` provider dihitung ulang otomatis. Pesanan `requested` yang tidak direspons 24 jam dibatalkan otomatis oleh sistem (dicek setiap `AUTO_CANCEL_INTERVAL_MINUTES`, default 5 menit). Coba dengan akun demo `budi@djc.test` (customer) dan `deni@djc.test` (provider).
+
+## Profil provider
+
+| Endpoint                                  | Fungsi                                                                |
+| ----------------------------------------- | --------------------------------------------------------------------- |
+| `GET /api/v1/providers/:id`               | Profil publik provider verified (hanya koordinat kasar, tanpa alamat) |
+| `GET`/`PUT /api/v1/provider/profile`      | Provider melihat dan mengubah profilnya sendiri, termasuk data privat |
+| `GET`/`PUT /api/v1/provider/availability` | Jadwal mingguan provider; `PUT` mengganti seluruh jadwal              |
+| `PUT /api/v1/provider/photo`              | Unggah foto profil ke Cloudinary (wajib `image_alt`)                  |
+| `GET`/`POST /api/v1/provider/portfolio`   | Daftar dan tambah karya portofolio (gambar ke Cloudinary)             |
+| `DELETE /api/v1/provider/portfolio/:id`   | Hapus karya portofolio milik sendiri                                  |
+
+Saat provider menyimpan `lat`/`lng`, server menyimpan `public_lat`/`public_lng` = dibulatkan 2 desimal (sekitar 1,1 km), mis. `-6.238321, 106.975612` → `-6.24, 106.98` (`src/utils/location.js`). Endpoint publik tidak pernah mengirim koordinat asli, alamat, nomor alumni, atau jenis disabilitas. Coba dengan akun demo `deni@djc.test` / `Demo12345`.
+
+### Upload gambar (Cloudinary)
+
+Gambar dikirim sebagai data URI base64 di body JSON (`{ "image": "data:image/jpeg;base64,…", "image_alt": "…" }`), maks 5 MB, JPG/PNG/WebP/GIF/AVIF. Teks alternatif (`image_alt`) wajib; kosong atau hanya spasi ditolak `400`. Cloudinary menyimpan gambar sebagai WebP, maks 1200 px, kualitas otomatis.
+
+1. Daftar gratis di cloudinary.com.
+2. Buka Dashboard (Product Environment), salin **Cloud name**, **API Key**, dan **API Secret**.
+3. Isi `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` di `.env`, lalu restart backend.
+
+Tanpa ketiga nilai itu, endpoint upload menjawab `503` ("Upload gambar belum diaktifkan.").
+
+## Admin
+
+| Endpoint                                 | Fungsi                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| `GET /api/v1/admin/dashboard`            | Ringkasan jumlah user, provider, booking, dan ulasan                |
+| `POST /api/v1/admin/providers`           | Admin membuat akun mitra (profil `pending`)                         |
+| `PUT /api/v1/admin/providers/:id/verify` | Verifikasi (`verified`) atau tolak (`rejected`, wajib `note`) mitra |
+| `PUT /api/v1/admin/reviews/:id/moderate` | Sembunyikan/tampilkan ulasan; rating provider dihitung ulang        |
+| `PUT /api/v1/admin/users/:id/suspend`    | Tangguhkan akun (wajib `reason`); booking aktifnya dibatalkan       |
+| `PUT /api/v1/admin/users/:id/activate`   | Aktifkan kembali akun                                               |
+
+Semua aksi admin dicatat di `admin_actions`. Admin tidak bisa menangguhkan akunnya sendiri atau admin lain. Coba dengan akun demo `admin@djc.test` / `Demo12345`. Detail di API contract bagian 9a.
+
+> > > > > > > origin/fix/admin-lists-review-locks
 
 ## Database: migrasi dan data dummy
 
@@ -218,12 +287,18 @@ djc-backend/
 │   │   ├── index.js           # Router /api/v1
 │   │   ├── health.js          # GET /api/v1/health
 │   │   ├── auth.js            # /api/v1/auth: register, login, logout, me, reset kata sandi
-│   │   └── categories.js      # /api/v1/categories (publik), /api/v1/admin/categories
+│   │   ├── categories.js      # /api/v1/categories (publik), /api/v1/admin/categories
+│   │   ├── services.js        # /api/v1/services: pencarian dan detail layanan
+│   │   ├── bookings.js        # /api/v1/bookings: pemesanan dan transisi status
+│   │   ├── admin.js           # /api/v1/admin: dasbor, mitra, moderasi, suspend
+│   │   ├── providers.js       # /api/v1/providers/:id (publik), /api/v1/provider/* (provider)
+│   │   ├── providerMedia.js   # Upload foto profil dan portofolio (Cloudinary)
+│   │   └── googleAuth.js      # /api/v1/auth/google (OAuth redirect)
 │   ├── middlewares/
 │   │   ├── auth.js            # requireAuth, requireRole, requireActiveUser
 │   │   ├── notFound.js        # 404 berformat standar
 │   │   └── errorHandler.js    # Error berformat standar
-│   ├── repositories/          # Query SQL per tabel (userRepository.js, categoryRepository.js)
+│   ├── repositories/          # Query SQL per tabel (user, category, provider, service, booking, review, admin)
 │   ├── utils/
 │   │   ├── response.js        # sendSuccess, ApiError
 │   │   ├── token.js           # JWT dan cookie djc_token
