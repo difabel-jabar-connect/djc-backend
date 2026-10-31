@@ -4,6 +4,7 @@ const { rateLimit } = require('express-rate-limit');
 const { z } = require('zod');
 const env = require('../config/env');
 const { requireAuth } = require('../middlewares/auth');
+const { createRateLimitStore } = require('../services/rateLimitStore');
 const createGoogleAuthRouter = require('./googleAuth');
 const crypto = require('node:crypto');
 const { ApiError, sendSuccess } = require('../utils/response');
@@ -100,13 +101,21 @@ async function compareWithDummy(password) {
   await bcrypt.compare(password, dummyHash);
 }
 
-function createAuthRouter({ users, mailer, googleOAuth, loginLimit = 10, resetLimit = 5 }) {
+function createAuthRouter({
+  users,
+  mailer,
+  googleOAuth,
+  redis = null,
+  loginLimit = 10,
+  resetLimit = 5,
+}) {
   const router = express.Router();
 
   // Membatasi permintaan tautan reset per IP: `resetLimit` kali per 15 menit.
   const forgotLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: resetLimit,
+    store: createRateLimitStore({ redis, prefix: `${env.redis.prefix}rl:forgot:` }),
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     handler: (req, res, next) =>
@@ -123,6 +132,7 @@ function createAuthRouter({ users, mailer, googleOAuth, loginLimit = 10, resetLi
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: loginLimit,
+    store: createRateLimitStore({ redis, prefix: `${env.redis.prefix}rl:login:` }),
     skipSuccessfulRequests: true,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
