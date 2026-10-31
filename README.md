@@ -71,14 +71,15 @@ Jika MySQL mati, endpoint yang sama mengembalikan HTTP 503 dengan `"database": "
 
 ## Auth
 
-| Endpoint                            | Fungsi                                                          |
-| ----------------------------------- | --------------------------------------------------------------- |
-| `POST /api/v1/auth/register`        | Daftar akun customer (akun mitra dibuat admin, `role` lain 403) |
-| `POST /api/v1/auth/login`           | Masuk, JWT dikirim di cookie HttpOnly `djc_token` dan di body   |
-| `POST /api/v1/auth/logout`          | Menghapus cookie                                                |
-| `GET /api/v1/auth/me`               | User yang sedang login, plus status verifikasi untuk provider   |
-| `POST /api/v1/auth/password/forgot` | Minta tautan reset kata sandi (berlaku 30 menit)                |
-| `POST /api/v1/auth/password/reset`  | Simpan kata sandi baru dengan token dari tautan                 |
+| Endpoint                            | Fungsi                                                             |
+| ----------------------------------- | ------------------------------------------------------------------ |
+| `POST /api/v1/auth/register`        | Daftar akun customer (akun mitra dibuat admin, `role` lain 403)    |
+| `POST /api/v1/auth/login`           | Masuk, JWT dikirim di cookie HttpOnly `djc_token` dan di body      |
+| `POST /api/v1/auth/logout`          | Menghapus cookie                                                   |
+| `GET /api/v1/auth/me`               | User yang sedang login, plus status verifikasi untuk provider      |
+| `POST /api/v1/auth/password/forgot` | Minta tautan reset kata sandi (berlaku 30 menit)                   |
+| `POST /api/v1/auth/password/reset`  | Simpan kata sandi baru dengan token dari tautan                    |
+| `GET /api/v1/auth/google`           | Login dengan Google (redirect ke Google, lalu kembali ke frontend) |
 
 Request dan respons memakai `name` untuk nama lengkap (kolom `users.full_name`). Sesi berlaku 24 jam, atau 7 hari jika login dengan `"remember": true`. Login gagal 10 kali dari IP yang sama dalam 15 menit dikunci sementara (429). Detail request dan respons ada di API contract bagian 4.
 
@@ -92,6 +93,18 @@ Jika SMTP di `.env` belum diisi, link reset muncul di terminal backend (`[mailer
 4. Restart backend (Ctrl+C, lalu `npm run dev`) setelah mengubah `.env`.
 
 Gmail membatasi sekitar 500 email per hari. Penyedia email final masih menunggu STK-OPN-03. Paket Railway yang lebih rendah bisa memblokir SMTP keluar; jika begitu, production perlu API email berbasis HTTP (mis. Resend atau Brevo) di balik fungsi `sendPasswordReset` yang sama di `src/services/mailer.js`.
+
+### Login dengan Google
+
+Tombol Google di frontend membuka `GET /api/v1/auth/google?redirect=/path`. Backend mengarahkan ke Google, lalu `/api/v1/auth/google/callback` memasang cookie `djc_token` (email terdaftar) atau mengarahkan ke `/register?google=not_registered&email=…&name=…` (email belum terdaftar). Detail di API contract A7.
+
+1. Buka console.cloud.google.com, buat atau pilih project.
+2. APIs & Services → OAuth consent screen: External, status Testing, tambahkan Gmail sendiri sebagai Test users.
+3. APIs & Services → Credentials → Create credentials → OAuth client ID, tipe Web application.
+4. Authorized redirect URIs: `http://localhost:5000/api/v1/auth/google/callback`.
+5. Isi `GOOGLE_CLIENT_ID` dan `GOOGLE_CLIENT_SECRET` di `.env` (`GOOGLE_REDIRECT_URI` boleh kosong untuk lokal), lalu restart backend.
+
+Tanpa client ID/secret, tombol Google kembali ke `/login?google_error=unavailable`.
 
 Coba dari terminal setelah `npm run db:seed` (PowerShell: pakai `curl.exe`):
 

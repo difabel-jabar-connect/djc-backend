@@ -7,6 +7,7 @@ const db = require('./config/db');
 const userRepository = require('./repositories/userRepository');
 const categoryRepository = require('./repositories/categoryRepository');
 const defaultMailer = require('./services/mailer');
+const { createGoogleOAuth } = require('./services/googleOAuth');
 const createApiRouter = require('./routes');
 const notFound = require('./middlewares/notFound');
 const errorHandler = require('./middlewares/errorHandler');
@@ -17,6 +18,7 @@ function createApp({
   users = userRepository,
   categories = categoryRepository,
   mailer = defaultMailer,
+  googleOAuth = createGoogleOAuth(),
   loginLimit,
   resetLimit,
 } = {}) {
@@ -37,7 +39,10 @@ function createApp({
 
   app.use(
     '/api/v1',
-    createApiRouter({ pingDb, users, categories, mailer, loginLimit, resetLimit }),
+  app.use(
+    '/api/v1',
+    createApiRouter({ pingDb, users, categories, mailer, googleOAuth, loginLimit, resetLimit }),
+  );
   );
 
   app.use(notFound);

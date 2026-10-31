@@ -35,6 +35,27 @@ function verifyToken(token) {
   }
 }
 
+const OAUTH_PURPOSE = 'google_oauth';
+
+/**
+ * Cookie sementara untuk login Google: `state` acak (anti-CSRF) dan path tujuan setelah
+ * login, berlaku 10 menit. Tanpa `sub`, jadi tidak bisa dipakai sebagai token sesi.
+ */
+function signOAuthState({ state, redirect }) {
+  return jwt.sign({ purpose: OAUTH_PURPOSE, state, redirect }, getSecret(), { expiresIn: '10m' });
+}
+
+/** Mengembalikan { state, redirect } dari cookie login Google, atau null jika tidak valid. */
+function verifyOAuthState(token) {
+  try {
+    const payload = jwt.verify(token, getSecret());
+    if (payload.purpose !== OAUTH_PURPOSE || typeof payload.state !== 'string') return null;
+    return { state: payload.state, redirect: payload.redirect ?? null };
+  } catch {
+    return null;
+  }
+}
+
 const RESET_PURPOSE = 'password_reset';
 
 // Secret token reset ikut password_hash user, jadi tautan otomatis tidak berlaku
@@ -97,6 +118,8 @@ module.exports = {
   signResetToken,
   readResetTokenSubject,
   verifyResetToken,
+  signOAuthState,
+  verifyOAuthState,
   setTokenCookie,
   clearTokenCookie,
 };
