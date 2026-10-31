@@ -48,6 +48,15 @@ env.mail = {
 env.mail.secure = env.mail.port === 465;
 env.mail.enabled = Boolean(env.mail.host && env.mail.user && env.mail.pass);
 
+// Login dengan Google (OAuth authorization code). Client ID atau secret kosong = fitur
+// dimatikan; tombol Google di frontend dikembalikan ke halaman Masuk dengan pesan.
+env.google = {
+  clientId: process.env.GOOGLE_CLIENT_ID || '',
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+  redirectUri:
+    process.env.GOOGLE_REDIRECT_URI || `http://localhost:${env.port}/api/v1/auth/google/callback`,
+};
+
 env.app = {
   // Alamat frontend untuk tautan di email, mis. tautan reset kata sandi.
   frontendUrl: (process.env.FRONTEND_URL || env.corsOrigins[0] || '').replace(/\/+$/, ''),

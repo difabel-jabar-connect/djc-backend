@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A6, dan kategori C1–C3.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A8, dan kategori C1–C3.
 
 ---
 
@@ -120,6 +120,9 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | A4  | GET    | `/auth/me`               | Login                | Akun             | Sudah ada           |
 | A5  | POST   | `/auth/password/forgot`  | Publik               | Akun             | Sudah ada           |
 | A6  | POST   | `/auth/password/reset`   | Publik               | Akun             | Sudah ada           |
+| A7  | GET    | `/auth/google`           | Publik               | Akun             | Sudah ada           |
+| A7  | GET    | `/auth/google/callback`  | Publik (dari Google) | Akun             | Sudah ada           |
+| A8  | POST   | `/auth/google`           | Publik               | Akun             | Sudah ada           |
 | C1  | GET    | `/categories`            | Publik               | Search           | Sudah ada           |
 | C2  | POST   | `/admin/categories`      | Admin                | Kelola kategori  | Sudah ada           |
 | C3  | PUT    | `/admin/categories/:id`  | Admin                | Kelola kategori  | Sudah ada           |
@@ -319,6 +322,90 @@ Error: `400 VALIDATION_ERROR`, `404 NOT_FOUND` ("Email tidak terdaftar.", layar 
 Request: `{ "token": "eyJhbGciOi…", "password": "SandiBaru123" }` (`password` 8–72 karakter, sama dengan register). Sukses `200`: `{ "data": { "password_reset": true } }`, cookie sesi ikut dihapus sehingga user masuk ulang dengan kata sandi baru.
 
 Error: `400 VALIDATION_ERROR`, `410 TOKEN_EXPIRED` ("Tautan reset sudah tidak berlaku. Silakan minta tautan baru.") untuk token rusak, kedaluwarsa, atau sudah dipakai.
+
+### A7 `GET /auth/google` dan `GET /auth/google/callback`
+
+|             |                                                                                    |
+| ----------- | ---------------------------------------------------------------------------------- |
+| Tujuan      | Masuk dengan akun Google (OAuth 2.0 authorization code flow)                       |
+| Peran       | Publik                                                                             |
+| Requirement | MVP (permintaan tim, 26 Okt 2026)                                                  |
+| Layar       | Tombol "Masuk dengan Google" di `/login` dan "Daftar dengan Google" di `/register` |
+
+Bukan endpoint JSON: browser dibuka langsung ke URL ini, lalu server mengarahkan (302) ke Google dan kembali ke frontend.
+
+1. `GET /auth/google?redirect=/bookings`: `redirect` opsional, hanya path internal frontend (diawali `/`, bukan `//`). Server membuat `state` acak, menyimpannya bersama `redirect` di cookie HttpOnly `djc_oauth` (10 menit, `SameSite=Lax`, path `/api/v1/auth/google`), lalu 302 ke `https://accounts.google.com/o/oauth2/v2/auth` dengan `client_id`, `redirect_uri` (`GOOGLE_REDIRECT_URI`), `response_type=code`, `scope=openid email profile`, `state`, dan `prompt=select_account`.
+2. Google mengembalikan browser ke `GET /auth/google/callback?code=…&state=…`. Server mencocokkan `state` dengan cookie (lalu menghapus cookie itu), menukar `code` ke `https://oauth2.googleapis.com/token` memakai `GOOGLE_CLIENT_SECRET`, dan memverifikasi `id_token` dengan kunci publik Google (RS256, `aud` = `GOOGLE_CLIENT_ID`, `iss` = `accounts.google.com`, `email_verified = true`).
+
+Hasil redirect ke frontend (`FRONTEND_URL`):
+
+| Kondisi                                                                            | Redirect                                                                 |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Email sudah terdaftar                                                              | `<redirect atau halaman awal peran>?google=success` + cookie `djc_token` |
+| Email belum terdaftar                                                              | `/register?google=not_registered` (email dan nama tidak ditaruh di URL)  |
+| Email terdaftar tetapi belum terverifikasi (`users.email_verified_at` kosong)      | `/login?google_error=unverified`                                         |
+| `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` belum diisi                              | `/login?google_error=unavailable`                                        |
+| State tidak cocok, error dari Google, penukaran code gagal, `id_token` tidak valid | `/login?google_error=failed` (alasan dicatat di log server)              |
+
+Halaman awal peran sama dengan frontend: customer `/`, provider `/dashboard/provider`, admin `/admin`. Cookie `djc_token` sama dengan login biasa tanpa "Ingat saya" (cookie sesi, token 24 jam); akun `suspended` tetap boleh masuk. Akun **tidak** dibuat otomatis karena register butuh nomor telepon yang tidak diberikan Google.
+
+Saat deploy lintas domain (Vercel ↔ Railway), cookie `djc_token` dari callback ikut keputusan cookie yang sama dengan login biasa (API-02), dan `GOOGLE_REDIRECT_URI` diisi URL callback di Railway.
+
+**Catatan untuk frontend:** frontend saat ini memakai popup (A8). Alur redirect ini tetap tersedia:
+
+- `onClick` tombol Google yang sudah ada cukup `window.location.href = \`${API_BASE}/auth/google?redirect=${encodeURIComponent(next ?? '')}\``.
+- Setelah kembali dengan `?google=success`, panggil `GET /auth/me` untuk memuat user (cookie sudah terpasang, tetapi sesi di `sessionStorage` belum terisi).
+- Baca `google_error` (`unavailable`, `failed`, atau `unverified`) di halaman Masuk untuk menampilkan pesan, dan `google=not_registered` di halaman Daftar.
+
+**Verifikasi email sebelum login Google.** Login Google (A7 dan A8 `intent: login`) hanya untuk akun dengan `users.email_verified_at` terisi, supaya akun yang didaftarkan orang lain memakai email kita (A1 belum memverifikasi email) tidak bisa diambil alih. Kolom ini terisi saat daftar lewat Google (A8 `register`) atau setelah reset kata sandi lewat tautan email (A6). Akun yang didaftarkan lewat form cukup reset kata sandi sekali, lalu bisa masuk dengan Google.
+
+### A8 `POST /auth/google`
+
+|             |                                                                                                      |
+| ----------- | ---------------------------------------------------------------------------------------------------- |
+| Tujuan      | Masuk/daftar dengan Google lewat popup Google Identity Services (alur yang dipakai frontend)         |
+| Peran       | Publik                                                                                               |
+| Requirement | MVP (permintaan tim, 26 Okt 2026)                                                                    |
+| Layar       | Tombol "Masuk dengan Google" di `/login` dan "Daftar dengan Google" di `/register` (`useGoogleAuth`) |
+
+Frontend membuka popup `google.accounts.oauth2.initCodeClient` (`ux_mode: 'popup'`) dengan `VITE_GOOGLE_CLIENT_ID`, lalu mengirim `code` sekali pakai ke endpoint ini. Server menukar `code` ke `https://oauth2.googleapis.com/token` dengan `redirect_uri: 'postmessage'` dan `GOOGLE_CLIENT_SECRET`, lalu memverifikasi `id_token` sama seperti A7 (`aud` = `GOOGLE_CLIENT_ID`, `email_verified = true`). **`VITE_GOOGLE_CLIENT_ID` frontend dan `GOOGLE_CLIENT_ID` backend harus OAuth client yang sama**, dan origin frontend (`http://localhost:5173`, domain Vercel) didaftarkan di _Authorized JavaScript origins_.
+
+Request:
+
+```json
+{ "code": "4/0Ab…", "intent": "login", "role": "customer", "phone": "+6281234567890" }
+```
+
+- `intent` wajib: `login` atau `register`.
+- `register`: `phone` wajib (format sama dengan A1, kolom `users.phone` wajib dan Google tidak memberikannya). Hanya customer: `role` selain `customer` ditolak `403 FORBIDDEN` "Akun mitra dibuat oleh admin. Silakan hubungi pengelola." (API-04). `city`/`category` diabaikan. Nama diambil dari profil Google; kata sandi diisi acak (pemilik bisa membuatnya lewat Lupa Kata Sandi).
+
+Sukses `200` (login) atau `201` (register), cookie `djc_token` sama dengan login tanpa "Ingat saya":
+
+```json
+{
+  "data": {
+    "user": {
+      "id": "uuid",
+      "role": "customer",
+      "name": "Budi Santoso",
+      "email": "budi@gmail.com",
+      "phone": "+6281234567890",
+      "status": "active"
+    }
+  }
+}
+```
+
+| Kondisi                                               | Respons                   |
+| ----------------------------------------------------- | ------------------------- |
+| Body tidak valid, `phone` kosong saat `register`      | `400 VALIDATION_ERROR`    |
+| `code` ditolak Google atau `id_token` tidak valid     | `401 INVALID_CREDENTIALS` |
+| `register` dengan `role` mitra                        | `403 FORBIDDEN`           |
+| `login`, email akun belum terverifikasi (lihat A7)    | `403 FORBIDDEN`           |
+| `login`, email belum terdaftar                        | `404 NOT_FOUND`           |
+| `register`, email sudah terdaftar                     | `409 CONFLICT`            |
+| Percobaan gagal 10 kali per IP dalam 15 menit         | `429 TOO_MANY_REQUESTS`   |
+| `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` belum diisi | `503 SERVICE_UNAVAILABLE` |
 
 ---
 
