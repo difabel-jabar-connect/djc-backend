@@ -80,6 +80,7 @@ Jika MySQL mati, endpoint yang sama mengembalikan HTTP 503 dengan `"database": "
 | `POST /api/v1/auth/password/forgot` | Minta tautan reset kata sandi (berlaku 30 menit)                   |
 | `POST /api/v1/auth/password/reset`  | Simpan kata sandi baru dengan token dari tautan                    |
 | `GET /api/v1/auth/google`           | Login dengan Google (redirect ke Google, lalu kembali ke frontend) |
+| `POST /api/v1/auth/google`          | Masuk/daftar dengan Google dari popup (kirim `code` dan `intent`)  |
 
 Request dan respons memakai `name` untuk nama lengkap (kolom `users.full_name`). Sesi berlaku 24 jam, atau 7 hari jika login dengan `"remember": true`. Login gagal 10 kali dari IP yang sama dalam 15 menit dikunci sementara (429). Detail request dan respons ada di API contract bagian 4.
 
@@ -104,7 +105,12 @@ Tombol Google di frontend membuka `GET /api/v1/auth/google?redirect=/path`. Back
 4. Authorized redirect URIs: `http://localhost:5000/api/v1/auth/google/callback`.
 5. Isi `GOOGLE_CLIENT_ID` dan `GOOGLE_CLIENT_SECRET` di `.env` (`GOOGLE_REDIRECT_URI` boleh kosong untuk lokal), lalu restart backend.
 
-Tanpa client ID/secret, tombol Google kembali ke `/login?google_error=unavailable`.
+Frontend memakai popup Google Identity Services: tombol mengirim `code` ke `POST /api/v1/auth/google` dengan `intent` `login` (email belum terdaftar `404`) atau `register` (customer saja, wajib `phone`; email sudah ada `409`). Untuk alur ini:
+
+- `VITE_GOOGLE_CLIENT_ID` di frontend harus sama dengan `GOOGLE_CLIENT_ID` di backend (satu OAuth client).
+- Authorized JavaScript origins: `http://localhost:5173` (dan domain Vercel saat deploy).
+
+Detail di API contract A8. Tanpa client ID/secret, `GET` kembali ke `/login?google_error=unavailable` dan `POST` dijawab `503`.
 
 Coba dari terminal setelah `npm run db:seed` (PowerShell: pakai `curl.exe`):
 

@@ -1,8 +1,10 @@
 const env = require('../config/env');
 const { verifyGoogleToken } = require('../utils/googleToken');
 
-// Login dengan Google lewat OAuth 2.0 authorization code flow:
-// frontend membuka GET /auth/google, Google mengembalikan ke /auth/google/callback.
+// Login dengan Google lewat OAuth 2.0 authorization code flow, dua cara:
+// - redirect: frontend membuka GET /auth/google, Google mengembalikan ke /auth/google/callback;
+// - popup (Google Identity Services): frontend mengirim `code` ke POST /auth/google dan
+//   penukarannya memakai redirect_uri "postmessage".
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
@@ -33,7 +35,7 @@ function createGoogleOAuth({
    * Menukar `code` dengan token Google lalu memverifikasi id_token-nya. Mengembalikan
    * { email, name } atau melempar error berisi alasan (tanpa secret) untuk log server.
    */
-  async function profileFromCode(code) {
+  async function profileFromCode(code, { redirectUri = config.redirectUri } = {}) {
     const res = await fetchImpl(TOKEN_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -41,7 +43,7 @@ function createGoogleOAuth({
         code,
         client_id: config.clientId,
         client_secret: config.clientSecret,
-        redirect_uri: config.redirectUri,
+        redirect_uri: redirectUri,
         grant_type: 'authorization_code',
       }),
     });
