@@ -210,6 +210,7 @@ function createAuthRouter({ users, mailer, googleOAuth, loginLimit = 10, resetLi
     if (body.intent === 'login' && !user) {
       throw new ApiError(404, 'NOT_FOUND', 'Akun Google ini belum terdaftar. Silakan daftar.');
     }
+    if (body.intent === 'login' && !user.email_verified_at) throw emailUnverified();
     if (body.intent === 'register') {
       if (user) throw emailTaken();
       // Akun Google tidak punya kata sandi: diisi hash acak. Pemilik bisa membuat kata sandi
@@ -224,6 +225,7 @@ function createAuthRouter({ users, mailer, googleOAuth, loginLimit = 10, resetLi
           email: profile.email,
           phone: body.phone,
           passwordHash,
+          emailVerified: true,
         });
       } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') throw emailTaken();
@@ -321,6 +323,17 @@ function emailTaken() {
     409,
     'CONFLICT',
     'Email ini sudah terdaftar. Silakan masuk atau gunakan email lain.',
+  );
+}
+
+// Akun dengan email ini didaftarkan lewat form biasa dan emailnya belum terbukti milik
+// pendaftar. Login Google ditolak supaya akun yang didaftarkan orang lain memakai email
+// kita tidak bisa diambil alih; reset kata sandi lewat email memverifikasinya.
+function emailUnverified() {
+  return new ApiError(
+    403,
+    'FORBIDDEN',
+    'Email akun ini belum terverifikasi. Atur ulang kata sandi lewat Lupa Kata Sandi untuk memverifikasinya, lalu masuk dengan Google lagi.',
   );
 }
 

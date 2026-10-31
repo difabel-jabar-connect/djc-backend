@@ -39,10 +39,7 @@ function createApp({
 
   app.use(
     '/api/v1',
-  app.use(
-    '/api/v1',
     createApiRouter({ pingDb, users, categories, mailer, googleOAuth, loginLimit, resetLimit }),
-  );
   );
 
   app.use(notFound);

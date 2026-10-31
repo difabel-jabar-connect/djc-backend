@@ -84,6 +84,12 @@ test(
 
     const stored = await knex('users').where({ email: customerEmail }).first();
     assert.notEqual(stored.password_hash, 'RahasiaUji1');
+    assert.equal(stored.email_verified_at, null, 'daftar lewat form belum memverifikasi email');
+
+    // Reset kata sandi lewat tautan email ikut memverifikasi email.
+    const users = require('../src/repositories/userRepository');
+    await users.updatePassword(stored.id, stored.password_hash);
+    assert.ok((await users.findById(stored.id)).email_verified_at);
 
     const wrong = await request(app)
       .post('/api/v1/auth/login')

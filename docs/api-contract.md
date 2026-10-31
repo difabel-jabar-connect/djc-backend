@@ -342,7 +342,8 @@ Hasil redirect ke frontend (`FRONTEND_URL`):
 | Kondisi                                                                            | Redirect                                                                 |
 | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Email sudah terdaftar                                                              | `<redirect atau halaman awal peran>?google=success` + cookie `djc_token` |
-| Email belum terdaftar                                                              | `/register?google=not_registered&email=…&name=…`                         |
+| Email belum terdaftar                                                              | `/register?google=not_registered` (email dan nama tidak ditaruh di URL)  |
+| Email terdaftar tetapi belum terverifikasi (`users.email_verified_at` kosong)      | `/login?google_error=unverified`                                         |
 | `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` belum diisi                              | `/login?google_error=unavailable`                                        |
 | State tidak cocok, error dari Google, penukaran code gagal, `id_token` tidak valid | `/login?google_error=failed` (alasan dicatat di log server)              |
 
@@ -354,7 +355,9 @@ Saat deploy lintas domain (Vercel ↔ Railway), cookie `djc_token` dari callback
 
 - `onClick` tombol Google yang sudah ada cukup `window.location.href = \`${API_BASE}/auth/google?redirect=${encodeURIComponent(next ?? '')}\``.
 - Setelah kembali dengan `?google=success`, panggil `GET /auth/me` untuk memuat user (cookie sudah terpasang, tetapi sesi di `sessionStorage` belum terisi).
-- Baca `google_error` (`unavailable` atau `failed`) di halaman Masuk untuk menampilkan pesan, dan `google=not_registered` beserta `email`/`name` di halaman Daftar untuk mengisi awal form.
+- Baca `google_error` (`unavailable`, `failed`, atau `unverified`) di halaman Masuk untuk menampilkan pesan, dan `google=not_registered` di halaman Daftar.
+
+**Verifikasi email sebelum login Google.** Login Google (A7 dan A8 `intent: login`) hanya untuk akun dengan `users.email_verified_at` terisi, supaya akun yang didaftarkan orang lain memakai email kita (A1 belum memverifikasi email) tidak bisa diambil alih. Kolom ini terisi saat daftar lewat Google (A8 `register`) atau setelah reset kata sandi lewat tautan email (A6). Akun yang didaftarkan lewat form cukup reset kata sandi sekali, lalu bisa masuk dengan Google.
 
 ### A8 `POST /auth/google`
 
@@ -398,6 +401,7 @@ Sukses `200` (login) atau `201` (register), cookie `djc_token` sama dengan login
 | Body tidak valid, `phone` kosong saat `register`      | `400 VALIDATION_ERROR`    |
 | `code` ditolak Google atau `id_token` tidak valid     | `401 INVALID_CREDENTIALS` |
 | `register` dengan `role` mitra                        | `403 FORBIDDEN`           |
+| `login`, email akun belum terverifikasi (lihat A7)    | `403 FORBIDDEN`           |
 | `login`, email belum terdaftar                        | `404 NOT_FOUND`           |
 | `register`, email sudah terdaftar                     | `409 CONFLICT`            |
 | Percobaan gagal 10 kali per IP dalam 15 menit         | `429 TOO_MANY_REQUESTS`   |

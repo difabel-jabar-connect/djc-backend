@@ -84,15 +84,11 @@ function createGoogleAuthRouter({ users, googleOAuth }) {
     const user = await users.findByEmail(profile.email);
     if (!user) {
       // Akun tidak dibuat otomatis: register butuh nomor telepon yang tidak diberikan Google.
-      return res.redirect(
-        302,
-        frontendUrl(FRONTEND_PATHS.register, {
-          google: 'not_registered',
-          email: profile.email,
-          name: profile.name,
-        }),
-      );
+      // Email dan nama tidak ditaruh di URL supaya tidak tersimpan di riwayat browser dan log.
+      return res.redirect(302, frontendUrl(FRONTEND_PATHS.register, { google: 'not_registered' }));
     }
+    // Lihat emailUnverified di routes/auth.js: cegah pengambilalihan akun.
+    if (!user.email_verified_at) return loginError(res, 'unverified');
 
     // Sama dengan login biasa tanpa "Ingat saya": cookie sesi, token 24 jam.
     // Akun suspended tetap boleh masuk untuk membaca data (API-03).
