@@ -2,7 +2,7 @@
 
 REST API Difabel Jabar Connect, marketplace jasa berbasis lokasi bagi alumni penyandang disabilitas di Jawa Barat. Node.js + Express dengan database MySQL 8, di-deploy ke Railway, sesuai keputusan stack Week 1 (`docs/project-management/meeting-notes/2026-10-04-week-1-decisions.md` dan `docs/technical/stack-comparison.md` di repository dokumentasi [deonaja/difabel-jabar-connect](https://github.com/deonaja/difabel-jabar-connect)).
 
-Status: repository disiapkan melalui deonaja/difabel-jabar-connect#13; fondasi Express/MySQL dan API contract ditambahkan melalui deonaja/difabel-jabar-connect#15. Yang sudah ada baru `GET /api/v1/health`; endpoint fitur mengikuti [`docs/api-contract.md`](docs/api-contract.md).
+Status: repository disiapkan melalui deonaja/difabel-jabar-connect#13; fondasi Express/MySQL dan API contract ditambahkan melalui deonaja/difabel-jabar-connect#15. Yang sudah ada: `GET /api/v1/health` dan auth (register, login, logout, me); endpoint fitur mengikuti [`docs/api-contract.md`](docs/api-contract.md).
 
 Baca [CONTRIBUTING.md](CONTRIBUTING.md) sebelum membuat branch atau pull request.
 
@@ -44,7 +44,7 @@ npm install
 cp .env.example .env      # Windows CMD: copy .env.example .env
 ```
 
-Isi `.env` sesuai MySQL kamu (`DB_USER`, `DB_PASSWORD`, `DB_NAME`).
+Isi `.env` sesuai MySQL kamu (`DB_USER`, `DB_PASSWORD`, `DB_NAME`). Isi juga `JWT_SECRET` dengan string acak panjang, misalnya hasil `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`. Jika kosong, server development memakai secret acak sementara sehingga semua sesi hilang setiap restart; di production server menolak jalan.
 
 Repository ini memakai akhir baris LF di semua OS (`.gitattributes`). Jika kamu meng-clone sebelum file itu ada dan `npm run format:check` gagal di Windows, pastikan tidak ada perubahan yang belum di-commit, lalu jalankan sekali `git rm -r --cached . -q` dan `git reset --hard` untuk checkout ulang dengan LF (file `.env` tidak ikut terhapus).
 
@@ -69,6 +69,49 @@ Buka <http://localhost:5000/api/v1/health>:
 
 Jika MySQL mati, endpoint yang sama mengembalikan HTTP 503 dengan `"database": "down"`.
 
+## Auth
+
+| Endpoint                            | Fungsi                                                          |
+| ----------------------------------- | --------------------------------------------------------------- |
+| `POST /api/v1/auth/register`        | Daftar akun customer (akun mitra dibuat admin, `role` lain 403) |
+| `POST /api/v1/auth/login`           | Masuk, JWT dikirim di cookie HttpOnly `djc_token` dan di body   |
+| `POST /api/v1/auth/logout`          | Menghapus cookie                                                |
+| `GET /api/v1/auth/me`               | User yang sedang login, plus status verifikasi untuk provider   |
+| `POST /api/v1/auth/password/forgot` | Minta tautan reset kata sandi (berlaku 30 menit)                |
+| `POST /api/v1/auth/password/reset`  | Simpan kata sandi baru dengan token dari tautan                 |
+
+Request dan respons memakai `name` untuk nama lengkap (kolom `users.full_name`). Sesi berlaku 24 jam, atau 7 hari jika login dengan `"remember": true`. Login gagal 10 kali dari IP yang sama dalam 15 menit dikunci sementara (429). Detail request dan respons ada di API contract bagian 4.
+
+Jika SMTP di `.env` belum diisi, link reset muncul di terminal backend (`[mailer] Reset kata sandi untuk …`).
+
+### Kirim email lewat Gmail
+
+1. Pakai akun Gmail khusus proyek (bukan email pribadi) dan aktifkan Verifikasi 2 Langkah.
+2. Buka Google Account → Security → App passwords, buat App Password, salin kode 16 karakternya.
+3. Isi di `.env`: `SMTP_USER` (alamat Gmail), `SMTP_PASS` (App Password), dan opsional `MAIL_FROM`, mis. `"Difabel Jabar Connect <alamat@gmail.com>"`. `SMTP_HOST=smtp.gmail.com` dan `SMTP_PORT=465` sudah ada di `.env.example`.
+4. Restart backend (Ctrl+C, lalu `npm run dev`) setelah mengubah `.env`.
+
+Gmail membatasi sekitar 500 email per hari. Penyedia email final masih menunggu STK-OPN-03. Paket Railway yang lebih rendah bisa memblokir SMTP keluar; jika begitu, production perlu API email berbasis HTTP (mis. Resend atau Brevo) di balik fungsi `sendPasswordReset` yang sama di `src/services/mailer.js`.
+
+Coba dari terminal setelah `npm run db:seed` (PowerShell: pakai `curl.exe`):
+
+```bash
+curl -c cookie.txt -H "Content-Type: application/json" \
+  -d '{"email":"budi@djc.test","password":"Demo12345"}' \
+  http://localhost:5000/api/v1/auth/login
+curl -b cookie.txt http://localhost:5000/api/v1/auth/me
+```
+
+Router fitur lain melindungi endpoint dengan middleware dari `src/middlewares/auth.js`:
+
+```js
+const { requireAuth, requireRole, requireActiveUser } = require('../middlewares/auth');
+router.post('/bookings', requireAuth, requireRole('customer'), requireActiveUser(), createBooking);
+// req.auth berisi { userId, role }
+```
+
+`requireActiveUser()` menolak aksi tulis (POST/PUT/PATCH/DELETE) dari akun `suspended` dengan `403 ACCOUNT_SUSPENDED`; GET tetap boleh. Pasang di setiap route tulis.
+
 ## Perintah
 
 | Perintah                                    | Fungsi                                               |
@@ -85,7 +128,7 @@ Jika MySQL mati, endpoint yang sama mengembalikan HTTP 503 dengan `"database": "
 | `npm run lint` / `npm run lint:fix`         | ESLint                                               |
 | `npm run format` / `npm run format:check`   | Prettier                                             |
 
-Tes yang memakai MySQL sungguhan (koneksi, skema, seeder) ikut dijalankan jika `DB_TEST=1`. Tes seeder mengisi ulang database dengan data dummy.
+Tes yang memakai MySQL sungguhan (koneksi, skema, seeder, auth) ikut dijalankan jika `DB_TEST=1`. Tes seeder mengisi ulang database dengan data dummy.
 
 ```bash
 DB_TEST=1 npm test            # PowerShell: $env:DB_TEST=1; npm test
@@ -144,11 +187,17 @@ djc-backend/
 │   │   └── db.js              # Pool koneksi mysql2 + ping
 │   ├── routes/
 │   │   ├── index.js           # Router /api/v1
-│   │   └── health.js          # GET /api/v1/health
+│   │   ├── health.js          # GET /api/v1/health
+│   │   └── auth.js            # /api/v1/auth: register, login, logout, me
 │   ├── middlewares/
+│   │   ├── auth.js            # requireAuth, requireRole, requireActiveUser
 │   │   ├── notFound.js        # 404 berformat standar
 │   │   └── errorHandler.js    # Error berformat standar
-│   ├── utils/response.js      # sendSuccess, ApiError
+│   ├── repositories/          # Query SQL per tabel (userRepository.js)
+│   ├── utils/
+│   │   ├── response.js        # sendSuccess, ApiError
+│   │   ├── token.js           # JWT dan cookie djc_token
+│   │   └── validate.js        # Validasi body dengan zod
 │   └── scripts/check-db.js    # npm run db:check
 ├── db/
 │   ├── migrations/            # Migrasi knex, satu file per tabel
