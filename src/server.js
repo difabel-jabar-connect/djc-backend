@@ -1,5 +1,6 @@
 const env = require('./config/env');
 const db = require('./config/db');
+const redis = require('./config/redis');
 const createApp = require('./app');
 const bookingRepository = require('./repositories/bookingRepository');
 const { createAutoCancel } = require('./services/autoCancel');
@@ -20,7 +21,7 @@ async function shutdown(signal) {
   console.log(`${signal} diterima, menutup server...`);
   autoCancel.stop();
   server.close(async () => {
-    await db.closePool();
+    await Promise.all([db.closePool(), redis.close()]);
     process.exit(0);
   });
 }

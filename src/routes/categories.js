@@ -78,12 +78,18 @@ async function guardDuplicate(fn) {
   }
 }
 
+// Daftar kategori publik di-cache di Redis (jika ada) dan dihapus setiap admin mengubah kategori.
+const CACHE_KEY = 'categories:active';
+const CACHE_TTL_SECONDS = 5 * 60;
+
+const noCache = { remember: (key, ttl, load) => load(), forget: async () => {} };
+
 /** C1 GET /categories (publik). */
-function createCategoriesRouter({ categories }) {
+function createCategoriesRouter({ categories, cache = noCache }) {
   const router = express.Router();
 
   router.get('/', async (req, res) => {
-    const list = await categories.listActive();
+    const list = await cache.remember(CACHE_KEY, CACHE_TTL_SECONDS, () => categories.listActive());
     return sendSuccess(
       res,
       list.map(({ id, name, slug, icon, sort_order: sortOrder }) => ({
@@ -100,7 +106,7 @@ function createCategoriesRouter({ categories }) {
 }
 
 /** POST /admin/categories dan PUT /admin/categories/:id (khusus admin, SP1-06). */
-function createAdminCategoriesRouter({ categories, users }) {
+function createAdminCategoriesRouter({ categories, users, cache = noCache }) {
   const router = express.Router();
   router.use(requireAuth, requireRole('admin'), requireActiveUser({ users }));
 
@@ -126,6 +132,7 @@ function createAdminCategoriesRouter({ categories, users }) {
         { adminId: req.auth.userId },
       ),
     );
+    await cache.forget(CACHE_KEY);
     return sendSuccess(res, category, { status: 201 });
   });
 
@@ -156,6 +163,7 @@ function createAdminCategoriesRouter({ categories, users }) {
     const category = await guardDuplicate(() =>
       categories.update(id, changes, { adminId: req.auth.userId }),
     );
+    await cache.forget(CACHE_KEY);
     return sendSuccess(res, category);
   });
 

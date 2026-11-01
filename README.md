@@ -64,10 +64,37 @@ npm run dev               # auto-restart saat file berubah
 Buka <http://localhost:5000/api/v1/health>:
 
 ```json
-{ "data": { "status": "ok", "database": "up", "timestamp": "..." } }
+{ "data": { "status": "ok", "database": "up", "redis": "disabled", "timestamp": "..." } }
 ```
 
-Jika MySQL mati, endpoint yang sama mengembalikan HTTP 503 dengan `"database": "down"`.
+Jika MySQL mati, endpoint yang sama mengembalikan HTTP 503 dengan `"database": "down"`. `redis` bernilai `disabled` jika `REDIS_URL` kosong, atau `up`/`down`; Redis mati membuat `status` jadi `degraded` tetapi tetap HTTP 200.
+
+## Docker dan Redis
+
+Redis **opsional**. Jika `REDIS_URL` diisi, Redis dipakai untuk:
+
+- **Rate limit** login gagal dan permintaan reset kata sandi: hitungan dibagi semua instance API dan tidak hilang saat server restart. Saat Redis putus, hitungan sementara disimpan di memori sehingga batas tetap berlaku.
+- **Cache** `GET /categories` selama 5 menit, dihapus otomatis setiap admin menambah atau mengubah kategori.
+
+Tanpa Redis, API berjalan seperti biasa (rate limit di memori, tanpa cache).
+
+`docker-compose.yml` menyediakan dua mode (butuh Docker Desktop yang sedang jalan):
+
+```bash
+# 1. Redis saja; API tetap `npm run dev` dengan MySQL lokal.
+docker compose up -d
+# lalu isi .env: REDIS_URL=redis://localhost:6379
+
+# 2. Semuanya di Docker: Redis + MySQL 8.4 (port host 3308) + API (port 5000).
+#    User/password/database MySQL dibaca dari DB_USER, DB_PASSWORD, DB_NAME di .env.
+docker compose --profile full up -d --build
+docker compose --profile full run --rm api npx knex migrate:latest
+docker compose --profile full run --rm api npx knex seed:run   # opsional, menghapus semua data
+```
+
+MySQL di mode 2 adalah database baru yang terpisah dari MySQL lokal. Matikan dengan `docker compose --profile full down` (tambah `-v` untuk menghapus datanya). Jika `npm run dev` lokal sedang jalan, hentikan dulu karena port 5000 dipakai container API.
+
+`Dockerfile` membangun image production (`node:24-alpine`, tanpa devDependencies).
 
 ## Auth
 
@@ -269,6 +296,8 @@ Di `NODE_ENV=production` seeder menolak jalan kecuali `SEED_FORCE=1`, supaya dat
 | `bcryptjs`           | Hash password (NFR-SEC-01, salt rounds 10); JS murni, tidak perlu build tools di Windows                  |
 | `zod`                | Validasi body dan query request                                                                           |
 | `express-rate-limit` | Membatasi percobaan login berulang                                                                        |
+| `redis`              | Client Redis (opsional) untuk rate limit bersama dan cache                                                |
+| `rate-limit-redis`   | Store Redis untuk `express-rate-limit`                                                                    |
 
 Dev: `eslint`, `prettier`, `supertest` (test HTTP), dan test runner bawaan Node (`node --test`).
 
@@ -282,7 +311,8 @@ djc-backend/
 │   ├── server.js              # Menjalankan app.listen
 │   ├── config/
 │   │   ├── env.js             # Membaca .env
-│   │   └── db.js              # Pool koneksi mysql2 + ping
+│   │   ├── db.js              # Pool koneksi mysql2 + ping
+│   │   └── redis.js           # Client Redis opsional (REDIS_URL)
 │   ├── routes/
 │   │   ├── index.js           # Router /api/v1
 │   │   ├── health.js          # GET /api/v1/health
@@ -299,6 +329,7 @@ djc-backend/
 │   │   ├── notFound.js        # 404 berformat standar
 │   │   └── errorHandler.js    # Error berformat standar
 │   ├── repositories/          # Query SQL per tabel (user, category, provider, service, booking, review, admin)
+│   ├── services/              # Mailer, Cloudinary, auto-cancel, cache dan store rate limit Redis
 │   ├── utils/
 │   │   ├── response.js        # sendSuccess, ApiError
 │   │   ├── token.js           # JWT dan cookie djc_token
@@ -309,6 +340,8 @@ djc-backend/
 │   └── seeds/                 # Seeder data dummy
 ├── knexfile.js                # Konfigurasi knex, membaca .env
 ├── tests/                     # *.test.js
+├── Dockerfile                 # Image production API
+├── docker-compose.yml         # Redis (default), MySQL + API (profile full)
 ├── .env.example
 ├── eslint.config.js
 └── .prettierrc.json
