@@ -28,6 +28,7 @@ test('seeder mengisi data dummy minimum', { skip: process.env.DB_TEST !== '1' },
     booking_status_history: 18,
     reviews: 2,
     admin_actions: 6,
+    booking_messages: 9,
   };
   for (const [table, total] of Object.entries(expected)) {
     assert.equal(await count(table), total, table);

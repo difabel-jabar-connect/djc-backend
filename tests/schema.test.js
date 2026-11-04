@@ -8,7 +8,7 @@ const { randomUUID } = require('node:crypto');
 
 const skip = process.env.DB_TEST !== '1';
 
-test('skema 12 tabel dan constraint utama', { skip }, async (t) => {
+test('skema 13 tabel dan constraint utama', { skip }, async (t) => {
   const knex = require('knex')(require('../knexfile'));
   t.after(() => knex.destroy());
 
@@ -20,6 +20,7 @@ test('skema 12 tabel dan constraint utama', { skip }, async (t) => {
   );
   assert.deepEqual(tables.map((row) => row.name).sort(), [
     'admin_actions',
+    'booking_messages',
     'booking_status_history',
     'bookings',
     'categories',

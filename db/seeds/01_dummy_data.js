@@ -1,8 +1,9 @@
 // Data dummy minimum sesuai docs/technical/data-model.md bagian "Data dummy minimum"
 // (SP1-09): 10 user, 6 provider di 6 kota, 8 kategori, 8 keterampilan, 8 layanan,
-// 7 booking (satu per status, 2 completed), 18 riwayat status, 2 review, 6 aksi admin.
+// 7 booking (satu per status, 2 completed), 18 riwayat status, 2 review, 6 aksi admin,
+// dan 9 pesan chat booking (BE-10).
 //
-// Seeder ini MENGHAPUS semua data di 12 tabel lalu mengisi ulang. ID dibuat
+// Seeder ini MENGHAPUS semua data di 13 tabel lalu mengisi ulang. ID dibuat
 // deterministik (UUID v5 dari nama) supaya URL profil tetap sama setiap seed ulang.
 // Tanggal booking dihitung relatif dari hari ini (WIB) agar status tetap masuk akal.
 
@@ -14,6 +15,7 @@ const DEMO_PASSWORD = process.env.SEED_PASSWORD || 'Demo12345';
 
 // Urutan hapus: anak dulu, induk terakhir.
 const TABLES = [
+  'booking_messages',
   'admin_actions',
   'reviews',
   'booking_status_history',
@@ -112,6 +114,7 @@ const PROVIDERS = [
   {
     key: 'p2',
     name: 'Siti Rahmawati',
+    disability: 'tunarungu',
     email: 'siti@djc.test',
     city: 'Kota Bandung',
     district: 'Coblong',
@@ -142,6 +145,7 @@ const PROVIDERS = [
   {
     key: 'p4',
     name: 'Rina Marlina',
+    disability: 'tunadaksa',
     email: 'rina@djc.test',
     city: 'Kota Cimahi',
     district: 'Cimahi Tengah',
@@ -435,6 +439,44 @@ const BOOKINGS = [
   },
 ];
 
+// Chat per booking (BE-10): [kode booking, pengirim (customer/provider), teks, jam lalu, dibaca].
+// Pesan yang belum dibaca dipakai untuk mencoba badge unread di inbox.
+const MESSAGES = [
+  [
+    'DJC-0001',
+    'customer',
+    'Pak Asep, kalau bisa bawa alat pel sendiri ya. Terima kasih.',
+    1.5,
+    false,
+  ],
+  ['DJC-0002', 'customer', 'Halo Bu Siti, celananya saya antar besok jam 10 ya.', 17, true],
+  [
+    'DJC-0002',
+    'provider',
+    'Baik Bu Ani, saya tunggu. Mohon lewat chat saja ya, saya Teman Tuli.',
+    16,
+    true,
+  ],
+  ['DJC-0002', 'customer', 'Siap Bu. Dipotong 3 cm dari bawah, dua-duanya.', 3, false],
+  [
+    'DJC-0003',
+    'customer',
+    'Bu Rina, untuk arisan 15 orang menunya nasi liwet dan ayam goreng ya.',
+    69,
+    true,
+  ],
+  [
+    'DJC-0003',
+    'provider',
+    'Siap Pak Budi. Bahan saya belanja sendiri, struknya nanti saya kirim.',
+    68,
+    true,
+  ],
+  ['DJC-0003', 'provider', 'Saya sudah sampai, sedang mulai masak.', 0.5, false],
+  ['DJC-0004', 'customer', 'Pak Deni, stop kontak di dapur juga sekalian dicek ya.', 9 * 24, true],
+  ['DJC-0004', 'provider', 'Baik Bu Citra, nanti saya cek sekalian.', 9 * 24 - 1, true],
+];
+
 const REVIEWS = [
   { key: 'r1', booking: 'DJC-0004', rating: 5, comment: 'Cepat, rapi, penjelasannya jelas.' },
   {
@@ -487,6 +529,7 @@ exports.seed = async function seed(knex) {
         display_name: p.name,
         bio: p.bio,
         communication_prefs: JSON.stringify(p.prefs),
+        disability_type: p.disability ?? null,
         alumni_reg_no: `PPSGHD-2024-${String(i + 1).padStart(3, '0')}`,
         address_detail: `Jl. Contoh No. ${i + 1}, ${p.district}, ${p.city} (alamat dummy)`,
         city: p.city,
@@ -600,6 +643,26 @@ exports.seed = async function seed(knex) {
         })),
       );
     }
+
+    await trx('booking_messages').insert(
+      MESSAGES.map(([code, who, text, hoursAgo, read], i) => {
+        const booking = BOOKINGS.find((b) => b.code === code);
+        const sender =
+          who === 'customer'
+            ? id(`user:${booking.customer}`)
+            : id(`user:${serviceByKey[booking.service].provider}`);
+        return {
+          id: id(`message:${code}:${i}`),
+          booking_id: id(`booking:${code}`),
+          sender_id: sender,
+          sender_role: who,
+          message_text: text,
+          is_read: read,
+          read_at: read ? ago((hoursAgo - 0.25) * HOUR) : null,
+          created_at: ago(hoursAgo * HOUR),
+        };
+      }),
+    );
 
     await trx('reviews').insert(
       REVIEWS.map((r) => {
