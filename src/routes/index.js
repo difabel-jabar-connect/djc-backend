@@ -7,6 +7,7 @@ const { createCategoriesRouter, createAdminCategoriesRouter } = require('./categ
 const { createServicesRouter } = require('./services');
 const { createBookingsRouter } = require('./bookings');
 const { createAdminRouter } = require('./admin');
+const { createBookingMessagesRouter, createChatRouter } = require('./chat');
 
 function createApiRouter(deps) {
   const router = express.Router();
@@ -19,6 +20,10 @@ function createApiRouter(deps) {
   router.use('/providers', createProvidersRouter(deps));
   router.use('/provider', createProviderSelfRouter(deps));
   router.use('/provider', createProviderMediaRouter(deps));
+  // Chat dipasang sebelum router booking. Cek akun aktif untuk kirim/tandai dibaca ada di
+  // src/services/chat.js, supaya REST dan Socket.io memakai aturan yang sama.
+  router.use('/bookings/:id/messages', createBookingMessagesRouter(deps));
+  router.use('/chat', createChatRouter(deps));
   router.use('/bookings', createBookingsRouter(deps));
   router.use('/admin', createAdminRouter(deps));
 

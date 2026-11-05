@@ -12,10 +12,12 @@ const serviceRepository = require('./repositories/serviceRepository');
 const bookingRepository = require('./repositories/bookingRepository');
 const reviewRepository = require('./repositories/reviewRepository');
 const adminRepository = require('./repositories/adminRepository');
+const chatRepository = require('./repositories/chatRepository');
 const defaultMailer = require('./services/mailer');
 const { createCloudinary } = require('./services/cloudinary');
 const { createCache } = require('./services/cache');
 const { createGoogleOAuth } = require('./services/googleOAuth');
+const { createChatHub } = require('./services/chat');
 const createApiRouter = require('./routes');
 const notFound = require('./middlewares/notFound');
 const errorHandler = require('./middlewares/errorHandler');
@@ -30,6 +32,9 @@ function createApp({
   bookings = bookingRepository,
   reviews = reviewRepository,
   admin = adminRepository,
+  chat = chatRepository,
+  // Penghubung ke Socket.io; server.js memasang io ke hub yang sama (src/realtime/chatSocket.js).
+  chatHub = createChatHub(),
   mailer = defaultMailer,
   cloudinary = createCloudinary(),
   googleOAuth = createGoogleOAuth(),
@@ -71,6 +76,8 @@ function createApp({
       bookings,
       reviews,
       admin,
+      chat,
+      chatHub,
       mailer,
       cloudinary,
       googleOAuth,

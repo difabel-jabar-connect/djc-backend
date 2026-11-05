@@ -143,7 +143,6 @@ Detail di API contract A8. Tanpa client ID/secret, `GET` kembali ke `/login?goog
 
 =======
 
-> > > > > > > origin/fix/admin-lists-review-locks
 > > > > > > > Coba dari terminal setelah `npm run db:seed` (PowerShell: pakai `curl.exe`):
 
 ```bash
@@ -221,6 +220,30 @@ Filter: `q`, `category_id` atau `category` (slug), `city`, `min_price`, `max_pri
 
 Alur status: `requested → accepted → in_progress → completed`, ditambah `rejected` dan `cancelled`. Lompatan status ditolak `409 INVALID_TRANSITION`, dan setiap perubahan dicatat di `booking_status_history` dalam transaksi yang sama. Telepon dan alamat lawan transaksi hanya terbuka saat status `accepted` atau `in_progress`, lalu dikunci lagi setelah selesai, ditolak, atau dibatalkan (BE-07); admin tidak melihat kontak atau alamat. Satu ulasan per pesanan; `rating_avg`/`rating_count` provider dihitung ulang otomatis. Pesanan `requested` yang tidak direspons 24 jam dibatalkan otomatis oleh sistem (dicek setiap `AUTO_CANCEL_INTERVAL_MINUTES`, default 5 menit). Coba dengan akun demo `budi@djc.test` (customer) dan `deni@djc.test` (provider).
 
+## Chat per booking (BE-10)
+
+| Endpoint                                   | Fungsi                                                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------ |
+| `GET /api/v1/bookings/:id/messages`        | Riwayat pesan (`?limit=50&before_id=…`), plus `provider_disability_type` |
+| `POST /api/v1/bookings/:id/messages`       | Kirim pesan `{ "message_text": "…" }` (1–1000 karakter), di-broadcast    |
+| `PATCH /api/v1/bookings/:id/messages/read` | Tandai semua pesan yang diterima sebagai dibaca (`messages_read`)        |
+| `GET /api/v1/chat/inbox`                   | Daftar percakapan: pesan terakhir dan jumlah belum dibaca                |
+
+Yang boleh membaca hanya customer pemilik booking, provider penerima, atau admin (admin cuma bisa membaca). Selain itu ditolak `403`. Kirim pesan hanya bisa saat status `requested`, `accepted`, atau `in_progress`. Setelah `completed`, `rejected`, atau `cancelled`, chat jadi read-only (`400 CHAT_READ_ONLY`). Tag HTML/script di pesan dibuang server, tapi frontend tetap harus menampilkan pesan sebagai teks biasa.
+
+Real-time lewat Socket.io di port yang sama dengan API (path `/socket.io`). Login dibaca dari cookie `djc_token`, jadi di frontend cukup `io(API_ORIGIN, { withCredentials: true })`. Klien lain bisa mengirim `auth: { token }`.
+
+| Event dari klien | Payload                     | Event yang diterima                                 |
+| ---------------- | --------------------------- | --------------------------------------------------- |
+| `join_room`      | `{ booking_id }`            | ack `{ ok, data: { status, can_send } }`            |
+| `send_message`   | `{ booking_id, text }`      | `new_message` ke room `booking:<id>`                |
+| `typing`         | `{ booking_id, is_typing }` | `user_typing` ke peserta lain di room               |
+| `mark_read`      | `{ booking_id }`            | `messages_read` ke room                             |
+| `leave_room`     | `{ booking_id }`            | –                                                   |
+| (otomatis)       | –                           | `inbox_updated` ke room `user:<id>` tiap pesan baru |
+
+Setiap event menerima callback ack `{ ok: true, data }` atau `{ ok: false, error: { code, message } }`. Tanpa ack, error dikirim sebagai event `chat_error`. Coba pakai akun demo `budi@djc.test` (booking `DJC-0003`, provider `rina@djc.test`).
+
 ## Profil provider
 
 | Endpoint                                  | Fungsi                                                                |
@@ -261,7 +284,7 @@ Semua aksi admin dicatat di `admin_actions`. Admin tidak bisa menangguhkan akunn
 
 ## Database: migrasi dan data dummy
 
-Skema 12 tabel mengikuti `docs/technical/data-model.md` di repository dokumentasi (SP1-02): UUID `CHAR(36)`, waktu `DATETIME(6)` UTC, uang `BIGINT` rupiah, dan semua CHECK constraint. Satu file migrasi per tabel di `db/migrations/`.
+Skema 12 tabel mengikuti `docs/technical/data-model.md` di repository dokumentasi (SP1-02): UUID `CHAR(36)`, waktu `DATETIME(6)` UTC, uang `BIGINT` rupiah, dan semua CHECK constraint. Tabel ke-13, `booking_messages`, ditambahkan untuk chat per booking (BE-10). Satu file migrasi per tabel di `db/migrations/`.
 
 ```bash
 npm run db:migrate            # buat semua tabel
@@ -269,7 +292,7 @@ npm run db:seed               # HAPUS semua data lalu isi data dummy
 npm run db:fresh              # drop semua tabel lalu migrasi ulang dari nol
 ```
 
-Data dummy (SP1-09) berisi 10 user, 6 provider di 6 kota, 8 kategori, 8 layanan, 7 booking (satu per status), dan 2 review. ID-nya tetap sama setiap seed ulang, dan tanggal booking dihitung dari hari ini.
+Data dummy (SP1-09) berisi 10 user, 6 provider di 6 kota, 8 kategori, 8 layanan, 7 booking (satu per status), 2 review, dan 9 pesan chat (sebagian belum dibaca, untuk mencoba badge inbox). ID-nya tetap sama setiap seed ulang, dan tanggal booking dihitung dari hari ini.
 
 Semua akun demo memakai password `Demo12345` (ganti lewat `SEED_PASSWORD` di `.env`):
 
@@ -320,6 +343,7 @@ djc-backend/
 │   │   ├── categories.js      # /api/v1/categories (publik), /api/v1/admin/categories
 │   │   ├── services.js        # /api/v1/services: pencarian dan detail layanan
 │   │   ├── bookings.js        # /api/v1/bookings: pemesanan dan transisi status
+│   │   ├── chat.js            # /api/v1/bookings/:id/messages dan /api/v1/chat/inbox
 │   │   ├── admin.js           # /api/v1/admin: dasbor, mitra, moderasi, suspend
 │   │   ├── providers.js       # /api/v1/providers/:id (publik), /api/v1/provider/* (provider)
 │   │   ├── providerMedia.js   # Upload foto profil dan portofolio (Cloudinary)
@@ -328,8 +352,9 @@ djc-backend/
 │   │   ├── auth.js            # requireAuth, requireRole, requireActiveUser
 │   │   ├── notFound.js        # 404 berformat standar
 │   │   └── errorHandler.js    # Error berformat standar
-│   ├── repositories/          # Query SQL per tabel (user, category, provider, service, booking, review, admin)
-│   ├── services/              # Mailer, Cloudinary, auto-cancel, cache dan store rate limit Redis
+│   ├── repositories/          # Query SQL per tabel (user, category, provider, service, booking, review, admin, chat)
+│   ├── services/              # Mailer, Cloudinary, auto-cancel, chat, cache dan store rate limit Redis
+│   ├── realtime/chatSocket.js # Socket.io chat per booking (BE-10)
 │   ├── utils/
 │   │   ├── response.js        # sendSuccess, ApiError
 │   │   ├── token.js           # JWT dan cookie djc_token

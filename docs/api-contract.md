@@ -1085,6 +1085,66 @@ Error umum: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403
 
 ---
 
+## 9b. Chat per booking (BE-10)
+
+Issue #32. Percakapan customer ↔ provider per booking, lewat REST dan Socket.io. Semua endpoint wajib login.
+
+| #   | Endpoint                            | Siapa                      | Ringkas                                                      |
+| --- | ----------------------------------- | -------------------------- | ------------------------------------------------------------ |
+| CH1 | `GET /bookings/:id/messages`        | Customer, provider, admin  | Riwayat pesan, urut lama → baru                              |
+| CH2 | `POST /bookings/:id/messages`       | Customer, provider (aktif) | Kirim pesan, broadcast `new_message` ke `booking:<id>`       |
+| CH3 | `PATCH /bookings/:id/messages/read` | Customer, provider (aktif) | Tandai pesan yang diterima dibaca, broadcast `messages_read` |
+| CH4 | `GET /chat/inbox`                   | Customer, provider         | Daftar percakapan dengan pesan terakhir dan unread           |
+
+Aturan:
+
+- Booking tidak ada atau id bukan UUID `404 NOT_FOUND`. Ada tapi pemanggil bukan partisipan `403 FORBIDDEN` (sesuai issue #32). Ini beda dengan B3, yang menjawab 404.
+- Admin hanya membaca. CH2/CH3 oleh admin `403`. Akun `suspended` boleh membaca, tapi CH2/CH3 ditolak `403 ACCOUNT_SUSPENDED`.
+- CH2 hanya saat status `requested`, `accepted`, atau `in_progress` (di issue tertulis `pending`/`confirmed`). Status lain `400 CHAT_READ_ONLY`.
+- `message_text` 1–1000 karakter setelah dibersihkan: tag HTML/`<script>` dan karakter kontrol dibuang, lalu di-trim.
+
+CH1 query: `limit` (1–100, default 50), `before_id` (id pesan, ambil pesan yang lebih lama). Respons:
+
+```json
+{
+  "data": {
+    "booking": { "id": "…", "code": "DJC-0003", "status": "in_progress", "can_send": true },
+    "provider_disability_type": "tunadaksa",
+    "messages": [
+      {
+        "id": "…",
+        "booking_id": "…",
+        "sender_id": "…",
+        "sender_role": "provider",
+        "message_text": "Saya sudah sampai, sedang mulai masak.",
+        "is_read": false,
+        "read_at": null,
+        "created_at": "2026-11-04T06:30:00.000Z"
+      }
+    ]
+  },
+  "meta": { "limit": 50, "has_more": false, "next_before_id": null }
+}
+```
+
+CH3 respons: `{ "data": { "booking_id", "reader_id", "reader_role", "read_at", "count" } }`.
+
+CH4 query `page`, `limit` (maks 50). Isinya booking milik pemanggil yang masih berjalan atau sudah punya pesan, diurutkan dari aktivitas terakhir. Tiap item berisi `booking { id, code, status, service_title }`, `counterpart` (provider: `name`, `photo_url`, `photo_alt`, `disability_type`; customer: `name`, disingkat "Budi S." sebelum pesanan pernah diterima), `last_message`, `unread_count`, dan `can_send`.
+
+Socket.io (path `/socket.io`, port API). Handshake membaca cookie `djc_token`, `auth.token`, atau header `Authorization: Bearer`. Tanpa token valid, koneksi ditolak (`connect_error`, `data.code = UNAUTHENTICATED`).
+
+| Event klien    | Payload                     | Server                                                          |
+| -------------- | --------------------------- | --------------------------------------------------------------- |
+| `join_room`    | `{ booking_id }`            | Cek partisipan (aturan CH1), lalu `socket.join('booking:<id>')` |
+| `send_message` | `{ booking_id, text }`      | Aturan CH2, broadcast `new_message` (bentuk pesan CH1)          |
+| `typing`       | `{ booking_id, is_typing }` | Wajib sudah join, broadcast `user_typing` ke peserta lain       |
+| `mark_read`    | `{ booking_id }`            | Aturan CH3, broadcast `messages_read`                           |
+| `leave_room`   | `{ booking_id }`            | Keluar room                                                     |
+
+Setiap koneksi juga masuk room `user:<id>` dan menerima `inbox_updated { booking_id, message }` setiap ada pesan baru di bookingnya. Error event dikirim lewat callback ack (`{ ok: false, error: { code, message } }`), atau event `chat_error` kalau tidak ada ack.
+
+---
+
 ## 10. Hubungan Flow → Layar → Endpoint
 
 | Flow     | Layar                                                                           | Endpoint          |
