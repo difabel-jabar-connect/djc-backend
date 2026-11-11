@@ -56,6 +56,32 @@ function verifyOAuthState(token) {
   }
 }
 
+const GOOGLE_SIGNUP_PURPOSE = 'google_signup';
+
+/**
+ * Token daftar Google: dibuat saat akun Google yang belum terdaftar masuk lewat tombol
+ * Google, berisi email (sudah diverifikasi Google) dan nama. Frontend mengirimnya kembali
+ * bersama nomor telepon ke POST /auth/google/complete. Berlaku 10 menit, tanpa `sub`.
+ */
+function signGoogleSignupToken({ email, name }) {
+  return jwt.sign({ purpose: GOOGLE_SIGNUP_PURPOSE, email, name }, getSecret(), {
+    expiresIn: '10m',
+  });
+}
+
+/** Mengembalikan { email, name } dari token daftar Google, atau null jika tidak valid. */
+function verifyGoogleSignupToken(token) {
+  try {
+    const payload = jwt.verify(token, getSecret());
+    if (payload.purpose !== GOOGLE_SIGNUP_PURPOSE || typeof payload.email !== 'string') {
+      return null;
+    }
+    return { email: payload.email, name: typeof payload.name === 'string' ? payload.name : '' };
+  } catch {
+    return null;
+  }
+}
+
 const RESET_PURPOSE = 'password_reset';
 
 // Secret token reset ikut password_hash user, jadi tautan otomatis tidak berlaku
@@ -120,6 +146,8 @@ module.exports = {
   verifyResetToken,
   signOAuthState,
   verifyOAuthState,
+  signGoogleSignupToken,
+  verifyGoogleSignupToken,
   setTokenCookie,
   clearTokenCookie,
 };

@@ -290,6 +290,61 @@ test('POST /auth/google login: email belum terdaftar 404 tanpa cookie', async ()
   assert.equal(res.status, 404);
   assert.equal(res.body.error.code, 'NOT_FOUND');
   assert.equal(cookieFrom(res, 'djc_token'), undefined);
+  assert.equal(res.body.error.details.email, 'baru@gmail.com');
+  assert.equal(res.body.error.details.name, 'Nama dari Google');
+  assert.equal(typeof res.body.error.details.signup_token, 'string');
+});
+
+test('POST /auth/google/complete: token daftar + telepon membuat customer dan langsung masuk', async () => {
+  const users = fakeUserStore();
+  const app = createApp({ users, googleOAuth: fakeGoogle().oauth });
+
+  const login = await request(app)
+    .post('/api/v1/auth/google')
+    .send({ code: 'kode-baru@gmail.com', intent: 'login' });
+  const { signup_token: signupToken } = login.body.error.details;
+
+  const res = await request(app)
+    .post('/api/v1/auth/google/complete')
+    .send({ signup_token: signupToken, phone: '+6281234567890' });
+
+  assert.equal(res.status, 201);
+  assert.equal(res.body.data.user.role, 'customer');
+  assert.equal(res.body.data.user.name, 'Nama dari Google');
+  assert.equal(res.body.data.user.email, 'baru@gmail.com');
+  assert.equal(res.body.data.user.phone, '+6281234567890');
+  const session = cookieFrom(res, 'djc_token');
+  assert.equal(
+    verifyToken(session.split(';')[0].slice('djc_token='.length)).sub,
+    users.created[0].id,
+  );
+  assert.ok(users.created[0].email_verified_at, 'email dari Google langsung terverifikasi');
+
+  const again = await request(app)
+    .post('/api/v1/auth/google/complete')
+    .send({ signup_token: signupToken, phone: '+6281234567890' });
+  assert.equal(again.status, 409, 'token yang sama tidak bisa membuat akun kedua');
+});
+
+test('POST /auth/google/complete: token tidak valid 401, telepon salah 400', async () => {
+  const users = fakeUserStore();
+  const app = createApp({ users, googleOAuth: fakeGoogle().oauth });
+  const send = (body) => request(app).post('/api/v1/auth/google/complete').send(body);
+
+  const forged = await send({ signup_token: 'bukan-token', phone: '+6281234567890' });
+  assert.equal(forged.status, 401);
+  assert.equal(cookieFrom(forged, 'djc_token'), undefined);
+
+  // Token sesi biasa bukan token daftar.
+  const { signToken } = require('../src/utils/token');
+  const session = signToken({ id: randomUUID(), role: 'customer' }).token;
+  const wrongPurpose = await send({ signup_token: session, phone: '+6281234567890' });
+  assert.equal(wrongPurpose.status, 401);
+
+  const badPhone = await send({ signup_token: 'x', phone: '0812' });
+  assert.equal(badPhone.status, 400);
+  assert.equal(badPhone.body.error.details[0].field, 'phone');
+  assert.equal(users.created.length, 0);
 });
 
 test('POST /auth/google register: membuat customer dengan nama Google dan telepon dari form', async () => {
