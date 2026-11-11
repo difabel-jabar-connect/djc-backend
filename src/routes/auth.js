@@ -16,6 +16,8 @@ const {
   signResetToken,
   readResetTokenSubject,
   verifyResetToken,
+  signGoogleSignupToken,
+  verifyGoogleSignupToken,
 } = require('../utils/token');
 
 const email = z
@@ -34,6 +36,15 @@ const password = z
   .string('Kata sandi wajib diisi.')
   .min(8, 'Kata sandi minimal 8 karakter.')
   .max(72, 'Kata sandi maksimal 72 karakter.');
+
+// Body POST /auth/google/complete: token daftar Google + nomor telepon.
+const googleCompleteSchema = z.object({
+  signup_token: z
+    .string('Token pendaftaran Google wajib diisi.')
+    .min(1, 'Token pendaftaran Google wajib diisi.')
+    .max(4096, 'Token pendaftaran Google tidak valid.'),
+  phone,
+});
 
 // Field request mengikuti form Daftar di frontend: `name` disimpan ke kolom users.full_name.
 // Pendaftaran mandiri hanya untuk customer; `role` lain ditolak di route (API-04).
@@ -110,6 +121,29 @@ function createAuthRouter({
   resetLimit = 5,
 }) {
   const router = express.Router();
+
+  /**
+   * Membuat customer dari akun Google (email sudah diverifikasi Google). Akun Google tidak
+   * punya kata sandi: diisi hash acak; pemilik bisa membuatnya lewat Lupa Kata Sandi.
+   */
+  async function createGoogleUser({ name, email: userEmail, phone: userPhone }) {
+    const passwordHash = await bcrypt.hash(
+      crypto.randomBytes(32).toString('base64url'),
+      env.auth.bcryptSaltRounds,
+    );
+    try {
+      return await users.createUser({
+        fullName: name.slice(0, 100),
+        email: userEmail,
+        phone: userPhone,
+        passwordHash,
+        emailVerified: true,
+      });
+    } catch (error) {
+      if (error.code === 'ER_DUP_ENTRY') throw emailTaken();
+      throw error;
+    }
+  }
 
   // Membatasi permintaan tautan reset per IP: `resetLimit` kali per 15 menit.
   const forgotLimiter = rateLimit({
@@ -218,29 +252,23 @@ function createAuthRouter({
     let user = await users.findByEmail(profile.email);
     let status = 200;
     if (body.intent === 'login' && !user) {
-      throw new ApiError(404, 'NOT_FOUND', 'Akun Google ini belum terdaftar. Silakan daftar.');
+      // Akun belum ada: frontend cukup meminta nomor telepon lalu memanggil
+      // POST /auth/google/complete dengan token ini, tanpa membuka popup Google lagi.
+      const name = (profile.name || profile.email.split('@')[0]).slice(0, 100);
+      throw new ApiError(404, 'NOT_FOUND', 'Akun Google ini belum terdaftar. Silakan daftar.', {
+        signup_token: signGoogleSignupToken({ email: profile.email, name }),
+        name,
+        email: profile.email,
+      });
     }
     if (body.intent === 'login' && !user.email_verified_at) throw emailUnverified();
     if (body.intent === 'register') {
       if (user) throw emailTaken();
-      // Akun Google tidak punya kata sandi: diisi hash acak. Pemilik bisa membuat kata sandi
-      // lewat Lupa Kata Sandi bila ingin masuk dengan email.
-      const passwordHash = await bcrypt.hash(
-        crypto.randomBytes(32).toString('base64url'),
-        env.auth.bcryptSaltRounds,
-      );
-      try {
-        user = await users.createUser({
-          fullName: (profile.name || profile.email.split('@')[0]).slice(0, 100),
-          email: profile.email,
-          phone: body.phone,
-          passwordHash,
-          emailVerified: true,
-        });
-      } catch (error) {
-        if (error.code === 'ER_DUP_ENTRY') throw emailTaken();
-        throw error;
-      }
+      user = await createGoogleUser({
+        name: profile.name || profile.email.split('@')[0],
+        email: profile.email,
+        phone: body.phone,
+      });
       status = 201;
     }
 
@@ -248,6 +276,26 @@ function createAuthRouter({
     const { token, expiresAt } = signToken(user);
     setTokenCookie(res, token, { expiresAt });
     return sendSuccess(res, { user: toAuthUser(user) }, { status });
+  });
+
+  // A8b POST /auth/google/complete — selesaikan daftar dari tombol Masuk dengan Google:
+  // token daftar (dari respons 404 POST /auth/google) + nomor telepon, lalu langsung masuk.
+  router.post('/google/complete', loginLimiter, async (req, res) => {
+    const body = validate(googleCompleteSchema, req.body);
+    const signup = verifyGoogleSignupToken(body.signup_token);
+    if (!signup) {
+      throw new ApiError(
+        401,
+        'INVALID_CREDENTIALS',
+        'Sesi pendaftaran Google kedaluwarsa. Silakan masuk dengan Google lagi.',
+      );
+    }
+    if (await users.findByEmail(signup.email)) throw emailTaken();
+
+    const user = await createGoogleUser({ ...signup, phone: body.phone });
+    const { token, expiresAt } = signToken(user);
+    setTokenCookie(res, token, { expiresAt });
+    return sendSuccess(res, { user: toAuthUser(user) }, { status: 201 });
   });
 
   // A7 GET /auth/google dan /auth/google/callback (login dengan Google, alur redirect).
