@@ -6,6 +6,7 @@ const env = require('./config/env');
 const db = require('./config/db');
 const redisClient = require('./config/redis');
 const userRepository = require('./repositories/userRepository');
+const addressRepository = require('./repositories/addressRepository');
 const providerRepository = require('./repositories/providerRepository');
 const categoryRepository = require('./repositories/categoryRepository');
 const serviceRepository = require('./repositories/serviceRepository');
@@ -26,6 +27,7 @@ const errorHandler = require('./middlewares/errorHandler');
 function createApp({
   pingDb = db.ping,
   users = userRepository,
+  addresses = addressRepository,
   providers = providerRepository,
   categories = categoryRepository,
   services = serviceRepository,
@@ -59,9 +61,9 @@ function createApp({
     }),
   );
   // Endpoint upload gambar memakai parser JSON sendiri dengan batas lebih besar
-  // (src/routes/providerMedia.js); endpoint lain tetap dibatasi 1 MB.
+  // (src/routes/imageUpload.js); endpoint lain tetap dibatasi 1 MB.
   const jsonBody = express.json({ limit: '1mb' });
-  const uploadPaths = /^\/api\/v1\/provider\/(photo|portfolio)\/?$/;
+  const uploadPaths = /^\/api\/v1\/(provider\/(photo|portfolio)|me\/photo)\/?$/;
   app.use((req, res, next) => (uploadPaths.test(req.path) ? next() : jsonBody(req, res, next)));
   app.use(cookieParser());
 
@@ -70,6 +72,7 @@ function createApp({
     createApiRouter({
       pingDb,
       users,
+      addresses,
       providers,
       categories,
       services,

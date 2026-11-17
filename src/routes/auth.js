@@ -9,6 +9,7 @@ const createGoogleAuthRouter = require('./googleAuth');
 const crypto = require('node:crypto');
 const { ApiError, sendSuccess } = require('../utils/response');
 const { validate } = require('../utils/validate');
+const { toAuthUser } = require('./authUser');
 const {
   signToken,
   setTokenCookie,
@@ -90,21 +91,6 @@ const resetPasswordSchema = z.object({
   password,
 });
 
-/**
- * Data akun yang aman dikirim ke pemiliknya sendiri. password_hash tidak pernah dikirim.
- * `name` diambil dari kolom full_name, sesuai yang dibaca frontend.
- */
-function toAuthUser(user) {
-  return {
-    id: user.id,
-    role: user.role,
-    name: user.full_name,
-    email: user.email,
-    phone: user.phone,
-    status: user.status,
-  };
-}
-
 // Dipakai saat email tidak terdaftar supaya waktu respons sama dengan password salah.
 let dummyHash;
 async function compareWithDummy(password) {
@@ -124,7 +110,8 @@ function createAuthRouter({
 
   /**
    * Membuat customer dari akun Google (email sudah diverifikasi Google). Akun Google tidak
-   * punya kata sandi: diisi hash acak; pemilik bisa membuatnya lewat Lupa Kata Sandi.
+   * punya kata sandi: diisi hash acak (has_password FALSE); pemilik bisa membuatnya lewat
+   * Lupa Kata Sandi.
    */
   async function createGoogleUser({ name, email: userEmail, phone: userPhone }) {
     const passwordHash = await bcrypt.hash(
@@ -138,6 +125,7 @@ function createAuthRouter({
         phone: userPhone,
         passwordHash,
         emailVerified: true,
+        hasPassword: false,
       });
     } catch (error) {
       if (error.code === 'ER_DUP_ENTRY') throw emailTaken();

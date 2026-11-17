@@ -8,7 +8,7 @@ const { randomUUID } = require('node:crypto');
 
 const skip = process.env.DB_TEST !== '1';
 
-test('skema 13 tabel dan constraint utama', { skip }, async (t) => {
+test('skema 14 tabel dan constraint utama', { skip }, async (t) => {
   const knex = require('knex')(require('../knexfile'));
   t.after(() => knex.destroy());
 
@@ -31,6 +31,7 @@ test('skema 13 tabel dan constraint utama', { skip }, async (t) => {
     'reviews',
     'services',
     'skills',
+    'user_addresses',
     'users',
   ]);
 

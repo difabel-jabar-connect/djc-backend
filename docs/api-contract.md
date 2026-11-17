@@ -123,6 +123,14 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | A7  | GET    | `/auth/google`           | Publik               | Akun             | Sudah ada           |
 | A7  | GET    | `/auth/google/callback`  | Publik (dari Google) | Akun             | Sudah ada           |
 | A8  | POST   | `/auth/google`           | Publik               | Akun             | Sudah ada           |
+| M1  | PATCH  | `/me`                    | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M2  | PUT    | `/me/password`           | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M3  | PUT    | `/me/photo`              | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M3  | DELETE | `/me/photo`              | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M4  | GET    | `/me/addresses`          | Login                | Akun Saya, Pesan | Sudah ada           |
+| M4  | POST   | `/me/addresses`          | Login (aktif)        | Akun Saya, Pesan | Sudah ada           |
+| M4  | PATCH  | `/me/addresses/:id`      | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M4  | DELETE | `/me/addresses/:id`      | Login (aktif)        | Akun Saya        | Sudah ada           |
 | C1  | GET    | `/categories`            | Publik               | Search           | Sudah ada           |
 | C2  | POST   | `/admin/categories`      | Admin                | Kelola kategori  | Sudah ada           |
 | C3  | PUT    | `/admin/categories/:id`  | Admin                | Kelola kategori  | Sudah ada           |
@@ -296,12 +304,17 @@ Sukses `200`:
       "name": "Deni Setiawan",
       "email": "deni@example.com",
       "phone": "+62…",
+      "avatar_url": null,
+      "has_password": true,
+      "email_verified": true,
       "status": "active"
     },
     "provider_profile": { "id": "7f1a…", "verification_status": "verified" }
   }
 }
 ```
+
+`avatar_url` foto profil dari Akun Saya (M3) atau `null`. `has_password` `false` untuk akun yang dibuat lewat Google dan belum membuat kata sandi sendiri (lewat Lupa Kata Sandi); layar Keamanan memakainya untuk menyembunyikan form ganti kata sandi. `email_verified` dari kolom `email_verified_at`. Ketiga field ini juga ada di respons A1, A2, A8, M1, dan M3.
 
 `provider_profile` hanya ada untuk provider (`null` jika profilnya belum ada). Error: `401 UNAUTHENTICATED`, juga jika akun pemilik token sudah dihapus (cookie ikut dihapus).
 
@@ -387,7 +400,7 @@ Request:
 ```
 
 - `intent` wajib: `login` atau `register`.
-- `register`: `phone` wajib (format sama dengan A1, kolom `users.phone` wajib dan Google tidak memberikannya). Hanya customer: `role` selain `customer` ditolak `403 FORBIDDEN` "Akun mitra dibuat oleh admin. Silakan hubungi pengelola." (API-04). `city`/`category` diabaikan. Nama diambil dari profil Google; kata sandi diisi acak (pemilik bisa membuatnya lewat Lupa Kata Sandi).
+- `register`: `phone` wajib (format sama dengan A1, kolom `users.phone` wajib dan Google tidak memberikannya). Hanya customer: `role` selain `customer` ditolak `403 FORBIDDEN` "Akun mitra dibuat oleh admin. Silakan hubungi pengelola." (API-04). `city`/`category` diabaikan. Nama diambil dari profil Google; kata sandi diisi acak dengan `has_password: false` (pemilik bisa membuatnya lewat Lupa Kata Sandi).
 
 Sukses `200` (login) atau `201` (register), cookie `djc_token` sama dengan login tanpa "Ingat saya":
 
@@ -416,6 +429,60 @@ Sukses `200` (login) atau `201` (register), cookie `djc_token` sama dengan login
 | `register`, email sudah terdaftar                     | `409 CONFLICT`            |
 | Percobaan gagal 10 kali per IP dalam 15 menit         | `429 TOO_MANY_REQUESTS`   |
 | `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` belum diisi | `503 SERVICE_UNAVAILABLE` |
+
+---
+
+## 4a. Akun Saya
+
+Halaman Profil Saya (`/profil`) di frontend. Semua endpoint wajib login; akun `suspended` hanya bisa membaca (`GET /me/addresses`), aksi lain `403 ACCOUNT_SUSPENDED`. Email tidak bisa diganti di sini. Respons M1 dan M3 berisi `{ "user": … }` dengan bentuk yang sama dengan A4.
+
+### M1 `PATCH /me`
+
+Mengubah data diri. Request: `{ "name": "Budi Santoso", "phone": "+6281234567890" }`, minimal satu field. `name` 2–100 karakter, `phone` format sama dengan A1. Error `400 VALIDATION_ERROR`.
+
+### M2 `PUT /me/password`
+
+Request: `{ "current_password": "…", "new_password": "…" }`. Kata sandi baru 8–72 karakter dan harus berbeda dari yang lama. Sukses `200`: `{ "data": { "password_changed": true } }`. Sesi yang sedang berjalan tetap berlaku; tautan reset yang belum dipakai otomatis tidak berlaku (A5). Frontend hanya menampilkan form ini untuk akun `has_password`.
+
+| Kondisi                                    | Respons                                           |
+| ------------------------------------------ | ------------------------------------------------- |
+| Kata sandi saat ini salah                  | `400 VALIDATION_ERROR` (field `current_password`) |
+| Akun Google tanpa kata sandi               | `409 PASSWORD_NOT_SET`                            |
+| Kata sandi salah 10 kali per IP / 15 menit | `429 TOO_MANY_REQUESTS`                           |
+
+Akun Google tanpa kata sandi membuat kata sandi lewat Lupa Kata Sandi.
+
+### M3 `PUT /me/photo` dan `DELETE /me/photo`
+
+`PUT` request: `{ "image": "data:image/jpeg;base64,…" }`, aturan gambar sama dengan P7 (JPG/PNG/WebP/GIF/AVIF, maks 5 MB, batas body 8 MB). Gambar diunggah ke Cloudinary folder `djc/users/<user id>` lalu URL-nya disimpan di `users.avatar_url`. `DELETE` mengosongkannya. Error: `400 VALIDATION_ERROR`, `503 SERVICE_UNAVAILABLE` jika Cloudinary belum dikonfigurasi atau gagal.
+
+### M4 Alamat tersimpan `/me/addresses`
+
+Dipakai Akun Saya dan langkah Detail Pesanan (alamat dipilih lewat pin peta). Maksimal 10 alamat per akun. Tepat satu alamat utama selama ada alamat: alamat pertama otomatis utama, `is_primary: true` memindahkan utama, dan bila alamat utama dihapus, alamat terbaru berikutnya menjadi utama.
+
+Bentuk alamat (respons `GET` berupa array, urut utama lalu terbaru):
+
+```json
+{
+  "id": "uuid",
+  "label": "Rumah",
+  "address": "Jl. Cigadung Raya No. 12, Cibeunying Kaler, Bandung",
+  "detail": "Pagar hijau",
+  "area": "Cibeunying Kaler",
+  "lat": -6.876512,
+  "lng": 107.623401,
+  "is_primary": true,
+  "created_at": "2026-11-17T03:00:00.000Z",
+  "updated_at": "2026-11-17T03:00:00.000Z"
+}
+```
+
+- `POST`: `label` (2–30), `address` (10–300), `lat`, `lng` wajib; `detail` (maks 120), `area` (maks 100), `is_primary` opsional. Sukses `201`.
+- `PATCH /me/addresses/:id`: field yang sama, semuanya opsional (minimal satu); `lat`/`lng` dikirim bersamaan; `detail`/`area` kosong menjadi `null`. `is_primary: false` diabaikan (pilih alamat lain sebagai utama).
+- `DELETE /me/addresses/:id`: sukses `{ "data": { "deleted": true } }`.
+- Alamat milik akun lain atau id bukan UUID `404 NOT_FOUND`. Sudah 10 alamat `409 CONFLICT`.
+
+Saat memesan, frontend tetap mengirim salinan alamat ke B1 (`location_address`, `location_area`, `location_lat`, `location_lng`), jadi mengubah atau menghapus alamat tidak mengubah pesanan lama.
 
 ---
 
