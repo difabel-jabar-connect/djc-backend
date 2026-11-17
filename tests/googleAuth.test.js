@@ -241,13 +241,21 @@ function fakeUserStore(...list) {
     async findByEmail(email) {
       return [...list, ...created].find((user) => user.email === email) ?? null;
     },
-    async createUser({ fullName, email, phone, passwordHash, emailVerified = false }) {
+    async createUser({
+      fullName,
+      email,
+      phone,
+      passwordHash,
+      emailVerified = false,
+      hasPassword = true,
+    }) {
       const user = {
         id: randomUUID(),
         role: 'customer',
         full_name: fullName,
         email,
         phone,
+        has_password: hasPassword,
         status: 'active',
         email_verified_at: emailVerified ? new Date() : null,
       };
@@ -271,6 +279,9 @@ test('POST /auth/google login: akun terdaftar dapat cookie sesi, code ditukar de
     role: 'customer',
     name: 'Budi Santoso',
     email: 'budi@gmail.com',
+    avatar_url: null,
+    has_password: true,
+    email_verified: true,
     status: 'active',
   });
   const session = cookieFrom(res, 'djc_token');
@@ -313,6 +324,7 @@ test('POST /auth/google/complete: token daftar + telepon membuat customer dan la
   assert.equal(res.body.data.user.name, 'Nama dari Google');
   assert.equal(res.body.data.user.email, 'baru@gmail.com');
   assert.equal(res.body.data.user.phone, '+6281234567890');
+  assert.equal(res.body.data.user.has_password, false, 'akun Google belum punya kata sandi');
   const session = cookieFrom(res, 'djc_token');
   assert.equal(
     verifyToken(session.split(';')[0].slice('djc_token='.length)).sub,
@@ -365,6 +377,7 @@ test('POST /auth/google register: membuat customer dengan nama Google dan telepo
   assert.ok(cookieFrom(res, 'djc_token'));
   assert.equal(users.created.length, 1);
   assert.match(users.created[0].password_hash, /^\$2[aby]\$/, 'kata sandi acak ter-hash');
+  assert.equal(res.body.data.user.has_password, false);
   assert.ok(users.created[0].email_verified_at, 'email dari Google langsung terverifikasi');
 });
 

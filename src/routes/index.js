@@ -1,6 +1,7 @@
 const express = require('express');
 const createHealthRouter = require('./health');
 const createAuthRouter = require('./auth');
+const { createAccountRouter } = require('./account');
 const { createProvidersRouter, createProviderSelfRouter } = require('./providers');
 const { createProviderMediaRouter } = require('./providerMedia');
 const { createCategoriesRouter, createAdminCategoriesRouter } = require('./categories');
@@ -14,6 +15,7 @@ function createApiRouter(deps) {
 
   router.use('/health', createHealthRouter(deps));
   router.use('/auth', createAuthRouter(deps));
+  router.use('/me', createAccountRouter(deps));
   router.use('/categories', createCategoriesRouter(deps));
   router.use('/admin/categories', createAdminCategoriesRouter(deps));
   router.use('/services', createServicesRouter(deps));
