@@ -35,16 +35,6 @@ const accountSchema = z
     path: ['name'],
   });
 
-const emailSchema = z.object({
-  email: z
-    .string('Email wajib diisi.')
-    .trim()
-    .toLowerCase()
-    .max(255, 'Email maksimal 255 karakter.')
-    .pipe(z.email('Format email tidak valid.')),
-  current_password: currentPassword,
-});
-
 const passwordSchema = z
   .object({
     current_password: currentPassword,
@@ -141,9 +131,9 @@ function toAddressChanges(body) {
 }
 
 /**
- * Akun Saya (semua peran yang login): ubah data diri, email, kata sandi, foto profil, dan
+ * Akun Saya (semua peran yang login): ubah data diri, kata sandi, foto profil, dan
  * alamat tersimpan. Akun suspended hanya bisa membaca (requireActiveUser).
- *   PATCH /me, PUT /me/email, PUT /me/password, PUT|DELETE /me/photo,
+ *   PATCH /me, PUT /me/password, PUT|DELETE /me/photo,
  *   GET|POST /me/addresses, PATCH|DELETE /me/addresses/:id
  */
 function createAccountRouter({ users, addresses, cloudinary, redis = null, loginLimit = 10 }) {
@@ -194,22 +184,6 @@ function createAccountRouter({ users, addresses, cloudinary, redis = null, login
     const body = validate(accountSchema, req.body);
     const user = await users.updateAccount(req.auth.userId, body);
     return sendSuccess(res, { user: toAuthUser(user) });
-  });
-
-  router.put('/email', passwordLimiter, async (req, res) => {
-    const body = validate(emailSchema, req.body);
-    const user = await currentUser(req);
-    await checkCurrentPassword(user, body.current_password);
-    if (body.email === user.email) return sendSuccess(res, { user: toAuthUser(user) });
-
-    const taken = await users.findByEmail(body.email);
-    if (taken) throw emailTaken();
-    try {
-      return sendSuccess(res, { user: toAuthUser(await users.updateEmail(user.id, body.email)) });
-    } catch (error) {
-      if (error.code === 'ER_DUP_ENTRY') throw emailTaken();
-      throw error;
-    }
   });
 
   router.put('/password', passwordLimiter, async (req, res) => {
@@ -287,10 +261,6 @@ function parseId(value) {
 
 function addressNotFound() {
   return new ApiError(404, 'NOT_FOUND', 'Alamat tidak ditemukan.');
-}
-
-function emailTaken() {
-  return new ApiError(409, 'CONFLICT', 'Email ini sudah dipakai akun lain.');
 }
 
 module.exports = { createAccountRouter, toAddress, MAX_ADDRESSES };

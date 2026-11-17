@@ -124,14 +124,13 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | A7  | GET    | `/auth/google/callback`  | Publik (dari Google) | Akun             | Sudah ada           |
 | A8  | POST   | `/auth/google`           | Publik               | Akun             | Sudah ada           |
 | M1  | PATCH  | `/me`                    | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M2  | PUT    | `/me/email`              | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M3  | PUT    | `/me/password`           | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M4  | PUT    | `/me/photo`              | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M4  | DELETE | `/me/photo`              | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M5  | GET    | `/me/addresses`          | Login                | Akun Saya, Pesan | Sudah ada           |
-| M5  | POST   | `/me/addresses`          | Login (aktif)        | Akun Saya, Pesan | Sudah ada           |
-| M5  | PATCH  | `/me/addresses/:id`      | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M5  | DELETE | `/me/addresses/:id`      | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M2  | PUT    | `/me/password`           | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M3  | PUT    | `/me/photo`              | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M3  | DELETE | `/me/photo`              | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M4  | GET    | `/me/addresses`          | Login                | Akun Saya, Pesan | Sudah ada           |
+| M4  | POST   | `/me/addresses`          | Login (aktif)        | Akun Saya, Pesan | Sudah ada           |
+| M4  | PATCH  | `/me/addresses/:id`      | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M4  | DELETE | `/me/addresses/:id`      | Login (aktif)        | Akun Saya        | Sudah ada           |
 | C1  | GET    | `/categories`            | Publik               | Search           | Sudah ada           |
 | C2  | POST   | `/admin/categories`      | Admin                | Kelola kategori  | Sudah ada           |
 | C3  | PUT    | `/admin/categories/:id`  | Admin                | Kelola kategori  | Sudah ada           |
@@ -315,7 +314,7 @@ Sukses `200`:
 }
 ```
 
-`avatar_url` foto profil dari Akun Saya (M4) atau `null`. `has_password` `false` untuk akun yang dibuat lewat Google dan belum membuat kata sandi sendiri (lewat Lupa Kata Sandi); layar Keamanan memakainya untuk menyembunyikan form ganti kata sandi. `email_verified` dari kolom `email_verified_at`. Ketiga field ini juga ada di respons A1, A2, A8, dan M1–M4.
+`avatar_url` foto profil dari Akun Saya (M3) atau `null`. `has_password` `false` untuk akun yang dibuat lewat Google dan belum membuat kata sandi sendiri (lewat Lupa Kata Sandi); layar Keamanan memakainya untuk menyembunyikan form ganti kata sandi. `email_verified` dari kolom `email_verified_at`. Ketiga field ini juga ada di respons A1, A2, A8, M1, dan M3.
 
 `provider_profile` hanya ada untuk provider (`null` jika profilnya belum ada). Error: `401 UNAUTHENTICATED`, juga jika akun pemilik token sudah dihapus (cookie ikut dihapus).
 
@@ -435,32 +434,29 @@ Sukses `200` (login) atau `201` (register), cookie `djc_token` sama dengan login
 
 ## 4a. Akun Saya
 
-Halaman Profil Saya (`/profil`) di frontend. Semua endpoint wajib login; akun `suspended` hanya bisa membaca (`GET /me/addresses`), aksi lain `403 ACCOUNT_SUSPENDED`. Respons M1–M4 berisi `{ "user": … }` dengan bentuk yang sama dengan A4.
+Halaman Profil Saya (`/profil`) di frontend. Semua endpoint wajib login; akun `suspended` hanya bisa membaca (`GET /me/addresses`), aksi lain `403 ACCOUNT_SUSPENDED`. Email tidak bisa diganti di sini. Respons M1 dan M3 berisi `{ "user": … }` dengan bentuk yang sama dengan A4.
 
 ### M1 `PATCH /me`
 
 Mengubah data diri. Request: `{ "name": "Budi Santoso", "phone": "+6281234567890" }`, minimal satu field. `name` 2–100 karakter, `phone` format sama dengan A1. Error `400 VALIDATION_ERROR`.
 
-### M2 `PUT /me/email`
+### M2 `PUT /me/password`
 
-Request: `{ "email": "budi.baru@example.com", "current_password": "…" }`. Email baru belum terbukti milik pemiliknya, jadi `email_verified` menjadi `false` (login Google untuk email itu menunggu reset kata sandi, lihat A7). Frontend hanya menampilkan form ini untuk akun `has_password`.
+Request: `{ "current_password": "…", "new_password": "…" }`. Kata sandi baru 8–72 karakter dan harus berbeda dari yang lama. Sukses `200`: `{ "data": { "password_changed": true } }`. Sesi yang sedang berjalan tetap berlaku; tautan reset yang belum dipakai otomatis tidak berlaku (A5). Frontend hanya menampilkan form ini untuk akun `has_password`.
 
 | Kondisi                                    | Respons                                           |
 | ------------------------------------------ | ------------------------------------------------- |
 | Kata sandi saat ini salah                  | `400 VALIDATION_ERROR` (field `current_password`) |
 | Akun Google tanpa kata sandi               | `409 PASSWORD_NOT_SET`                            |
-| Email dipakai akun lain                    | `409 CONFLICT`                                    |
 | Kata sandi salah 10 kali per IP / 15 menit | `429 TOO_MANY_REQUESTS`                           |
 
-### M3 `PUT /me/password`
+Akun Google tanpa kata sandi membuat kata sandi lewat Lupa Kata Sandi.
 
-Request: `{ "current_password": "…", "new_password": "…" }`. Kata sandi baru 8–72 karakter dan harus berbeda dari yang lama. Sukses `200`: `{ "data": { "password_changed": true } }`. Sesi yang sedang berjalan tetap berlaku; tautan reset yang belum dipakai otomatis tidak berlaku (A5). Error sama dengan M2 (tanpa `409 CONFLICT`). Akun Google tanpa kata sandi (`409 PASSWORD_NOT_SET`) membuat kata sandi lewat Lupa Kata Sandi.
-
-### M4 `PUT /me/photo` dan `DELETE /me/photo`
+### M3 `PUT /me/photo` dan `DELETE /me/photo`
 
 `PUT` request: `{ "image": "data:image/jpeg;base64,…" }`, aturan gambar sama dengan P7 (JPG/PNG/WebP/GIF/AVIF, maks 5 MB, batas body 8 MB). Gambar diunggah ke Cloudinary folder `djc/users/<user id>` lalu URL-nya disimpan di `users.avatar_url`. `DELETE` mengosongkannya. Error: `400 VALIDATION_ERROR`, `503 SERVICE_UNAVAILABLE` jika Cloudinary belum dikonfigurasi atau gagal.
 
-### M5 Alamat tersimpan `/me/addresses`
+### M4 Alamat tersimpan `/me/addresses`
 
 Dipakai Akun Saya dan langkah Detail Pesanan (alamat dipilih lewat pin peta). Maksimal 10 alamat per akun. Tepat satu alamat utama selama ada alamat: alamat pertama otomatis utama, `is_primary: true` memindahkan utama, dan bila alamat utama dihapus, alamat terbaru berikutnya menjadi utama.
 

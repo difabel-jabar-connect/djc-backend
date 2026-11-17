@@ -92,18 +92,6 @@ async function updateAccount(id, changes) {
   return findById(id);
 }
 
-/**
- * Mengganti email akun ber-kata sandi. Email baru belum terbukti milik pemiliknya, jadi
- * email_verified_at dikosongkan (login Google untuk email itu menunggu reset kata sandi).
- * Melempar error mysql2 ER_DUP_ENTRY jika email sudah dipakai akun lain.
- */
-async function updateEmail(id, email) {
-  await db
-    .getPool()
-    .query('UPDATE users SET email = ?, email_verified_at = NULL WHERE id = ?', [email, id]);
-  return findById(id);
-}
-
 /** Foto profil (URL Cloudinary) atau null untuk menghapusnya. */
 async function updateAvatar(id, url) {
   await db.getPool().query('UPDATE users SET avatar_url = ? WHERE id = ?', [url, id]);
@@ -116,6 +104,5 @@ module.exports = {
   createUser,
   updatePassword,
   updateAccount,
-  updateEmail,
   updateAvatar,
 };

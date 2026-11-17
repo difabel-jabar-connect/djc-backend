@@ -14,9 +14,6 @@ function fakeUsers(...list) {
   const rows = new Map(list.map((user) => [user.id, user]));
   return {
     rows,
-    async findByEmail(email) {
-      return [...rows.values()].find((user) => user.email === email) ?? null;
-    },
     async findById(id) {
       return rows.get(id) ?? null;
     },
@@ -24,12 +21,6 @@ function fakeUsers(...list) {
       const user = rows.get(id);
       if (changes.name !== undefined) user.full_name = changes.name;
       if (changes.phone !== undefined) user.phone = changes.phone;
-      return user;
-    },
-    async updateEmail(id, email) {
-      const user = rows.get(id);
-      user.email = email;
-      user.email_verified_at = null;
       return user;
     },
     async updatePassword(id, passwordHash, options) {
@@ -139,7 +130,7 @@ async function makeUser(overrides = {}) {
 }
 
 function setup(user, extra = {}) {
-  const users = fakeUsers(user, ...(extra.others ?? []));
+  const users = fakeUsers(user);
   const addresses = fakeAddresses();
   const cloudinary = extra.cloudinary ?? fakeCloudinary();
   const app = createApp({ users, addresses, cloudinary });
@@ -244,39 +235,17 @@ test('akun Google tanpa kata sandi diarahkan ke Lupa Kata Sandi (409 PASSWORD_NO
   });
   assert.equal(res.status, 409);
   assert.equal(res.body.error.code, 'PASSWORD_NOT_SET');
-
-  const email = await as('put', '/email').send({
-    email: 'lain@djc.test',
-    current_password: 'apa-saja',
-  });
-  assert.equal(email.status, 409);
 });
 
-test('PUT /me/email: butuh kata sandi, email dipakai akun lain 409, email baru belum terverifikasi', async () => {
+test('email tidak bisa diganti dari Akun Saya (PUT /me/email tidak ada)', async () => {
   const user = await makeUser();
-  const other = await makeUser({ email: 'siti@djc.test' });
-  const { as, users } = setup(user, { others: [other] });
-
-  const taken = await as('put', '/email').send({
-    email: 'SITI@djc.test',
-    current_password: 'Demo12345',
-  });
-  assert.equal(taken.status, 409);
-
-  const wrong = await as('put', '/email').send({
+  const { as, users } = setup(user);
+  const res = await as('put', '/email').send({
     email: 'budi.baru@djc.test',
-    current_password: 'salah',
-  });
-  assert.equal(wrong.status, 400);
-
-  const ok = await as('put', '/email').send({
-    email: ' Budi.Baru@DJC.test ',
     current_password: 'Demo12345',
   });
-  assert.equal(ok.status, 200);
-  assert.equal(ok.body.data.user.email, 'budi.baru@djc.test');
-  assert.equal(ok.body.data.user.email_verified, false);
-  assert.equal(users.rows.get(user.id).email, 'budi.baru@djc.test');
+  assert.equal(res.status, 404);
+  assert.equal(users.rows.get(user.id).email, 'budi@djc.test');
 });
 
 test('PUT/DELETE /me/photo: upload ke Cloudinary lalu simpan URL; gagal 503', async () => {

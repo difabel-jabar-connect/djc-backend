@@ -22,9 +22,7 @@ test(
 
     t.after(async () => {
       // Alamat ikut terhapus lewat ON DELETE CASCADE.
-      await knex('users')
-        .whereIn('email', [email, `baru-${email}`, googleEmail])
-        .del();
+      await knex('users').whereIn('email', [email, googleEmail]).del();
       await knex.destroy();
       await db.closePool();
     });
@@ -111,13 +109,6 @@ test(
       .post('/api/v1/auth/login')
       .send({ email, password: 'RahasiaBaru2' });
     assert.equal(newLogin.status, 200);
-
-    // Ganti email: email baru belum terverifikasi.
-    const moved = await agent
-      .put('/api/v1/me/email')
-      .send({ email: `baru-${email}`, current_password: 'RahasiaBaru2' });
-    assert.equal(moved.status, 200);
-    assert.equal(moved.body.data.user.email_verified, false);
 
     // Akun Google: has_password FALSE sampai kata sandi dibuat lewat reset.
     const google = await users.createUser({
