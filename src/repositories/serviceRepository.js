@@ -1,3 +1,4 @@
+const { randomUUID } = require('node:crypto');
 const db = require('../config/db');
 
 // Hanya layanan aktif dari kategori aktif, milik provider `verified` dengan akun `active`.
@@ -137,4 +138,94 @@ async function findPublicById(id) {
   return service;
 }
 
-module.exports = { search, findPublicById, SORTS };
+// ---- Katalog milik provider sendiri (SP2-07, FR-PROV-06) ----
+// Provider melihat semua layanannya, termasuk yang nonaktif atau berkategori nonaktif.
+
+const OWN_COLUMNS = `sv.id, sv.title, sv.description, sv.pricing_type, sv.price_amount, sv.min_hours,
+  sv.duration_estimate_min, sv.service_mode, sv.is_active, sv.created_at, sv.updated_at,
+  c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
+  c.is_active AS category_is_active`;
+
+const OWN_FROM = 'FROM services sv JOIN categories c ON c.id = sv.category_id';
+
+function toOwnService(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    pricing_type: row.pricing_type,
+    price_amount: Number(row.price_amount),
+    min_hours: row.min_hours,
+    duration_estimate_min: row.duration_estimate_min,
+    service_mode: row.service_mode,
+    is_active: Boolean(row.is_active),
+    category: {
+      id: row.category_id,
+      name: row.category_name,
+      slug: row.category_slug,
+      is_active: Boolean(row.category_is_active),
+    },
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+/** Semua layanan milik provider, yang aktif dulu lalu terbaru. */
+async function listOwn(providerId) {
+  const [rows] = await db.getPool().query(
+    `SELECT ${OWN_COLUMNS} ${OWN_FROM}
+       WHERE sv.provider_id = ? ORDER BY sv.is_active DESC, sv.created_at DESC, sv.id`,
+    [providerId],
+  );
+  return rows.map(toOwnService);
+}
+
+/** Satu layanan milik provider ini saja, atau null. */
+async function findOwn(providerId, id) {
+  const [rows] = await db
+    .getPool()
+    .query(`SELECT ${OWN_COLUMNS} ${OWN_FROM} WHERE sv.id = ? AND sv.provider_id = ?`, [
+      id,
+      providerId,
+    ]);
+  return toOwnService(rows[0]);
+}
+
+const WRITABLE = [
+  'category_id',
+  'title',
+  'description',
+  'pricing_type',
+  'price_amount',
+  'min_hours',
+  'duration_estimate_min',
+  'service_mode',
+  'is_active',
+];
+
+async function createOwn(providerId, data) {
+  const id = randomUUID();
+  const columns = WRITABLE.filter((key) => data[key] !== undefined);
+  await db.getPool().query(
+    `INSERT INTO services (id, provider_id, ${columns.join(', ')})
+       VALUES (?, ?, ${columns.map(() => '?').join(', ')})`,
+    [id, providerId, ...columns.map((key) => data[key])],
+  );
+  return findOwn(providerId, id);
+}
+
+/** Mengubah layanan milik provider ini. Mengembalikan null jika bukan miliknya. */
+async function updateOwn(providerId, id, changes) {
+  const columns = WRITABLE.filter((key) => changes[key] !== undefined);
+  if (columns.length > 0) {
+    await db.getPool().query(
+      `UPDATE services SET ${columns.map((key) => `${key} = ?`).join(', ')}
+         WHERE id = ? AND provider_id = ?`,
+      [...columns.map((key) => changes[key]), id, providerId],
+    );
+  }
+  return findOwn(providerId, id);
+}
+
+module.exports = { search, findPublicById, listOwn, findOwn, createOwn, updateOwn, SORTS };
