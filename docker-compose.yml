@@ -116,7 +116,7 @@ services:
         condition: service_completed_successfully
     develop:
       watch:
-        - action: sync+restart
+        - action: sync
           path: ./src
           target: /app/src
         - action: sync+restart
