@@ -105,10 +105,12 @@ function createCategoriesRouter({ categories, cache = noCache }) {
   return router;
 }
 
-/** POST /admin/categories dan PUT /admin/categories/:id (khusus admin, SP1-06). */
+/** GET/POST /admin/categories dan PUT /admin/categories/:id (khusus admin, SP1-06). */
 function createAdminCategoriesRouter({ categories, users, cache = noCache }) {
   const router = express.Router();
   router.use(requireAuth, requireRole('admin'), requireActiveUser({ users }));
+
+  router.get('/', async (req, res) => sendSuccess(res, await categories.listAll()));
 
   router.post('/', async (req, res) => {
     const body = validate(createSchema, req.body);

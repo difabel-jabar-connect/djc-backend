@@ -15,6 +15,22 @@ async function listActive() {
   return rows.map(toCategory);
 }
 
+/** Semua kategori (termasuk nonaktif) beserta jumlah layanannya untuk panel admin. */
+async function listAll() {
+  const [rows] = await db.getPool().query(
+    `SELECT c.id, c.name, c.slug, c.icon, c.sort_order, c.is_active,
+            COUNT(s.id) AS services_count
+     FROM categories c
+     LEFT JOIN services s ON s.category_id = c.id
+     GROUP BY c.id, c.name, c.slug, c.icon, c.sort_order, c.is_active
+     ORDER BY c.sort_order, c.name`,
+  );
+  return rows.map((row) => ({
+    ...toCategory(row),
+    services_count: Number(row.services_count),
+  }));
+}
+
 async function findById(id) {
   const [rows] = await db
     .getPool()
@@ -105,4 +121,4 @@ async function update(id, changes, { adminId }) {
   return findById(id);
 }
 
-module.exports = { listActive, findById, findConflict, create, update };
+module.exports = { listActive, listAll, findById, findConflict, create, update };
