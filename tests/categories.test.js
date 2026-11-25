@@ -29,6 +29,11 @@ function fakeCategories(initial = []) {
         .filter((category) => category.is_active)
         .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
     },
+    async listAll() {
+      return [...rows.values()]
+        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+        .map((category) => ({ ...category, services_count: category.services_count ?? 0 }));
+    },
     async findById(id) {
       return rows.get(id) ?? null;
     },
@@ -107,6 +112,20 @@ test('GET /categories publik: hanya kategori aktif, urut sort_order', async () =
     'slug',
     'sort_order',
   ]);
+});
+
+test('GET /admin/categories menampilkan semua kategori termasuk nonaktif dan jumlah layanan', async () => {
+  const res = await request(app())
+    .get('/api/v1/admin/categories')
+    .set('Authorization', bearer(admin));
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    res.body.data.map((category) => category.slug),
+    ['arsip', 'kebersihan', 'servis-elektronik'],
+  );
+  assert.equal(res.body.data[0].is_active, false);
+  assert.equal(res.body.data[0].services_count, 0);
 });
 
 test('admin menambah kategori: slug dibuat dari nama dan aksi dicatat', async () => {
