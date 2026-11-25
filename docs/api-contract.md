@@ -145,6 +145,10 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | P8  | GET    | `/provider/portfolio`    | Provider             | Profil provider  | Sudah ada           |
 | P8  | POST   | `/provider/portfolio`    | Provider             | Profil provider  | Sudah ada           |
 | P8  | DELETE | /provider/portfolio/:id  | Provider             | Profil provider  | Sudah ada           |
+| P9  | GET    | `/provider/services`     | Provider             | Katalog provider | Sudah ada           |
+| P9  | POST   | `/provider/services`     | Provider             | Katalog provider | Sudah ada           |
+| P9  | GET    | /provider/services/:id   | Provider             | Katalog provider | Sudah ada           |
+| P9  | PUT    | /provider/services/:id   | Provider             | Katalog provider | Sudah ada           |
 | P4  | GET    | `/providers/:id/reviews` | Publik               | Provider, Review | Proposed            |
 | L1  | GET    | `/services`              | Publik               | Search           | Sudah ada           |
 | L2  | GET    | `/services/:id`          | Publik               | Search, Booking  | Sudah ada           |
@@ -846,6 +850,61 @@ Aturan gambar dan `image_alt` sama dengan P7. `title` 2–120 karakter, `descrip
 
 Error: sama dengan P7, ditambah `404 NOT_FOUND` untuk karya yang tidak ada.
 
+### P9 `GET`/`POST /provider/services` dan `GET`/`PUT /provider/services/:id`
+
+|             |                                               |
+| ----------- | --------------------------------------------- |
+| Tujuan      | Provider mengelola katalog layanannya sendiri |
+| Peran       | Provider (akun aktif, bukan `suspended`)      |
+| Requirement | FR-PROV-06, US-PROV-07, SP2-07                |
+| Layar       | Dasbor provider, katalog layanan              |
+
+`POST` menambah layanan:
+
+```json
+{
+  "category_id": "uuid-kategori-aktif",
+  "title": "Les BISINDO privat",
+  "description": "Belajar bahasa isyarat dasar untuk keluarga.",
+  "pricing_type": "hourly",
+  "price_amount": 75000,
+  "min_hours": 2,
+  "duration_estimate_min": 120,
+  "service_mode": "both"
+}
+```
+
+Aturan: `category_id` wajib kategori aktif. `title` 3–120 karakter, `description` opsional maks 2000. `pricing_type` `fixed`, `starting_from`, atau `hourly`. `price_amount` rupiah bulat > 0 (untuk `hourly` berarti harga per jam). `min_hours` (1–24) wajib untuk `hourly` dan tidak boleh diisi untuk model lain. `duration_estimate_min` opsional 1–1440 menit. `service_mode` `at_customer`, `at_provider`, atau `both`. `is_active` opsional, default `true`.
+
+Sukses `201`:
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "title": "Les BISINDO privat",
+    "description": "Belajar bahasa isyarat dasar untuk keluarga.",
+    "pricing_type": "hourly",
+    "price_amount": 75000,
+    "min_hours": 2,
+    "duration_estimate_min": 120,
+    "service_mode": "both",
+    "is_active": true,
+    "category": { "id": "uuid", "name": "Pendidikan", "slug": "pendidikan", "is_active": true },
+    "created_at": "…",
+    "updated_at": "…"
+  }
+}
+```
+
+`GET /provider/services` mengembalikan semua layanan milik provider (termasuk yang nonaktif), yang aktif dulu lalu terbaru. `GET /provider/services/:id` mengembalikan satu layanan.
+
+`PUT /provider/services/:id` mengubah sebagian field (minimal satu). Mengganti `pricing_type` dari `hourly` ke model lain otomatis mengosongkan `min_hours`; mengganti ke `hourly` wajib menyertakan `min_hours`. Pindah kategori hanya ke kategori aktif. Menonaktifkan layanan cukup `{ "is_active": false }`: layanan hilang dari L1/L2 dan tidak bisa dipesan, tapi barisnya tetap ada untuk riwayat booking. Tidak ada endpoint hapus.
+
+Layanan tampil di L1, L2, dan P3 hanya jika layanan dan kategorinya aktif serta provider `verified` dan akunnya aktif.
+
+Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND` (profil belum ada, atau layanan bukan milik provider ini).
+
 ### P4 `GET /providers/:id/reviews`
 
 |             |                               |
@@ -1230,7 +1289,7 @@ Setiap koneksi juga masuk room `user:<id>` dan menerima `inbox_updated { booking
 | Area                                 | Endpoint rencana                                                                                                     | Issue/backlog         |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | Admin membuat akun mitra             | Sudah ada di bagian 9a (AD2, `POST /admin/providers`)                                                                | API-04                |
-| Jadwal, layanan, portofolio provider | `/provider/services` (jadwal sudah ada di P6, portofolio di P8)                                                      | FR-PROV-04–06, SP1-08 |
+| Jadwal, layanan, portofolio provider | Sudah ada di P6 (jadwal), P8 (portofolio), dan P9 (layanan)                                                          | FR-PROV-04–06, SP1-08 |
 | Admin verifikasi dan moderasi        | Sudah ada di bagian 9a (AD1, AD3–AD6)                                                                                | FR-ADM-01–06          |
 | Email reset/verifikasi               | Reset sudah ada (A5–A6, SMTP atau tautan di terminal); penyedia email final dan verifikasi email menunggu STK-OPN-03 | –                     |
 | Payment sandbox                      | Stretch goal                                                                                                         | STR-01                |
