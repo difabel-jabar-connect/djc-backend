@@ -18,12 +18,17 @@ function getSecret() {
   return devSecret;
 }
 
-/** Membuat JWT berisi `sub` (id user) dan `role`. */
+/** Membuat JWT berisi `sub` (id user), `role`, dan `jti` unik untuk pencabutan sesi. */
 function signToken(user, { remember = false } = {}) {
   const expiresIn = remember ? env.auth.jwtRememberExpiresIn : env.auth.jwtExpiresIn;
-  const token = jwt.sign({ role: user.role }, getSecret(), { subject: user.id, expiresIn });
+  const jti = crypto.randomUUID();
+  const token = jwt.sign({ role: user.role }, getSecret(), {
+    subject: user.id,
+    jwtid: jti,
+    expiresIn,
+  });
   const { exp } = jwt.decode(token);
-  return { token, expiresAt: new Date(exp * 1000) };
+  return { token, jti, expiresAt: new Date(exp * 1000) };
 }
 
 /** Mengembalikan payload jika token valid, atau null jika tidak valid/kedaluwarsa. */

@@ -13,6 +13,48 @@ function base64Bytes(base64) {
   return Math.floor((base64.length * 3) / 4) - padding;
 }
 
+/** Memastikan magic bytes awal hasil decode cocok dengan MIME gambar (OWASP A04/A08). */
+function matchesMagicBytes(mime, base64) {
+  const head = Buffer.from(base64.slice(0, 32), 'base64');
+  if (head.length < 4) return false;
+  switch (mime) {
+    case 'image/jpeg':
+      return head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+    case 'image/png':
+      return (
+        head.length >= 8 &&
+        head[0] === 0x89 &&
+        head[1] === 0x50 &&
+        head[2] === 0x4e &&
+        head[3] === 0x47 &&
+        head[4] === 0x0d &&
+        head[5] === 0x0a &&
+        head[6] === 0x1a &&
+        head[7] === 0x0a
+      );
+    case 'image/gif':
+      return (
+        head.length >= 6 &&
+        (head.subarray(0, 6).toString('ascii') === 'GIF87a' ||
+          head.subarray(0, 6).toString('ascii') === 'GIF89a')
+      );
+    case 'image/webp':
+      return (
+        head.length >= 12 &&
+        head.subarray(0, 4).toString('ascii') === 'RIFF' &&
+        head.subarray(8, 12).toString('ascii') === 'WEBP'
+      );
+    case 'image/avif':
+      return (
+        head.length >= 12 &&
+        head.subarray(4, 8).toString('ascii') === 'ftyp' &&
+        ['avif', 'avis', 'mif1'].includes(head.subarray(8, 12).toString('ascii'))
+      );
+    default:
+      return false;
+  }
+}
+
 const image = z.string('Gambar wajib diunggah.').superRefine((value, ctx) => {
   const match = DATA_URI_PATTERN.exec(value);
   if (!match) {
@@ -27,9 +69,17 @@ const image = z.string('Gambar wajib diunggah.').superRefine((value, ctx) => {
       code: 'custom',
       message: 'Format gambar harus JPG, PNG, WebP, GIF, atau AVIF.',
     });
+    return;
   }
   if (base64Bytes(match[2]) > MAX_IMAGE_BYTES) {
     ctx.addIssue({ code: 'custom', message: 'Ukuran gambar maksimal 5 MB.' });
+    return;
+  }
+  if (!matchesMagicBytes(match[1], match[2])) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Isi file tidak sesuai dengan format gambar yang dipilih.',
+    });
   }
 });
 

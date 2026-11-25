@@ -61,6 +61,8 @@ function whereClause(conditions) {
   return conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 }
 
+const likePattern = (text) => `%${String(text).replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+
 /**
  * Daftar mitra untuk tabel verifikasi (FR-ADM-02): nomor alumni dan kontak akun ikut
  * dikirim karena admin perlu meninjaunya. Yang menunggu paling lama tampil lebih dulu.
@@ -73,8 +75,9 @@ async function listProviders({ status, q, page, limit }) {
     params.push(status);
   }
   if (q) {
+    const pattern = likePattern(q);
     conditions.push('(p.display_name LIKE ? OR u.email LIKE ? OR p.alumni_reg_no LIKE ?)');
-    params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    params.push(pattern, pattern, pattern);
   }
   return paginate({
     columns: `p.id, p.user_id, p.display_name, p.alumni_reg_no, p.city, p.district,
@@ -129,8 +132,9 @@ async function listUsers({ role, status, q, page, limit }) {
     params.push(status);
   }
   if (q) {
+    const pattern = likePattern(q);
     conditions.push('(full_name LIKE ? OR email LIKE ?)');
-    params.push(`%${q}%`, `%${q}%`);
+    params.push(pattern, pattern);
   }
   return paginate({
     columns: 'id, role, full_name, email, phone, status, created_at',

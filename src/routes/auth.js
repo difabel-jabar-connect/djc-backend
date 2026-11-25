@@ -103,7 +103,9 @@ function createAuthRouter({
   mailer,
   googleOAuth,
   redis = null,
+  tokenBlacklist = null,
   loginLimit = 10,
+  registerLimit = 10,
   resetLimit = 5,
 }) {
   const router = express.Router();
@@ -168,8 +170,43 @@ function createAuthRouter({
       ),
   });
 
+  // Membatasi pendaftaran baru per IP: `registerLimit` kali per 15 menit (OWASP A04).
+  const registerLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: registerLimit,
+    store: createRateLimitStore({ redis, prefix: `${env.redis.prefix}rl:register:` }),
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: (req, res, next) =>
+      next(
+        new ApiError(
+          429,
+          'TOO_MANY_REQUESTS',
+          'Terlalu banyak percobaan pendaftaran. Silakan coba lagi dalam 15 menit.',
+        ),
+      ),
+  });
+
+  // Membatasi submit token reset gagal per IP: `resetLimit * 2` kali per 15 menit.
+  const resetSubmitLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: Math.max(resetLimit * 2, 10),
+    store: createRateLimitStore({ redis, prefix: `${env.redis.prefix}rl:reset:` }),
+    skipSuccessfulRequests: true,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: (req, res, next) =>
+      next(
+        new ApiError(
+          429,
+          'TOO_MANY_REQUESTS',
+          'Terlalu banyak percobaan atur ulang kata sandi. Silakan coba lagi dalam 15 menit.',
+        ),
+      ),
+  });
+
   // A1 POST /auth/register — hanya customer. Akun mitra dibuat admin (API-04).
-  router.post('/register', async (req, res) => {
+  router.post('/register', registerLimiter, async (req, res) => {
     rejectNonCustomer(req.body?.role);
     const body = validate(registerSchema, req.body);
 
@@ -289,8 +326,9 @@ function createAuthRouter({
   // A7 GET /auth/google dan /auth/google/callback (login dengan Google, alur redirect).
   router.use('/google', createGoogleAuthRouter({ users, googleOAuth }));
 
-  // A3 POST /auth/logout
-  router.post('/logout', requireAuth, (req, res) => {
+  // A3 POST /auth/logout — cabut JWT aktif (jti denylist) dan hapus cookie sesi.
+  router.post('/logout', requireAuth, async (req, res) => {
+    await tokenBlacklist?.revokeToken(req.auth);
     clearTokenCookie(res);
     return sendSuccess(res, { logged_out: true });
   });
@@ -314,24 +352,26 @@ function createAuthRouter({
   });
 
   // A5 POST /auth/password/forgot
-  // Email tidak terdaftar dijawab 404 karena layar Lupa Kata Sandi menampilkan
-  // "Email tidak terdaftar"; percobaan dibatasi forgotLimiter.
+  // OWASP A07: respons seragam 200 untuk email terdaftar maupun tidak agar tidak terjadi
+  // account enumeration; tetap dibatasi forgotLimiter.
   router.post('/password/forgot', forgotLimiter, async (req, res) => {
     const body = validate(forgotPasswordSchema, req.body);
 
     const user = await users.findByEmail(body.email);
-    if (!user) throw new ApiError(404, 'NOT_FOUND', 'Email tidak terdaftar.');
-
-    const token = signResetToken(user);
-    // Rute halaman reset di frontend (djc-frontend src/routes/paths.js: resetPassword).
-    const link = `${env.app.frontendUrl}/reset-kata-sandi?token=${encodeURIComponent(token)}`;
-    await mailer.sendPasswordReset({ to: user.email, name: user.full_name, link });
+    if (user) {
+      const token = signResetToken(user);
+      // Rute halaman reset di frontend (djc-frontend src/routes/paths.js: resetPassword).
+      const link = `${env.app.frontendUrl}/reset-kata-sandi?token=${encodeURIComponent(token)}`;
+      await mailer.sendPasswordReset({ to: user.email, name: user.full_name, link });
+    } else {
+      await compareWithDummy('forgot-timing-guard');
+    }
 
     return sendSuccess(res, { sent: true });
   });
 
   // A6 POST /auth/password/reset
-  router.post('/password/reset', async (req, res) => {
+  router.post('/password/reset', resetSubmitLimiter, async (req, res) => {
     const body = validate(resetPasswordSchema, req.body);
 
     const userId = readResetTokenSubject(body.token);
@@ -346,6 +386,8 @@ function createAuthRouter({
 
     const passwordHash = await bcrypt.hash(body.password, env.auth.bcryptSaltRounds);
     await users.updatePassword(user.id, passwordHash);
+    // Cabut semua JWT sesi lama milik akun ini (OWASP A07).
+    await tokenBlacklist?.revokeAllForUser(user.id);
     clearTokenCookie(res);
 
     return sendSuccess(res, { password_reset: true });

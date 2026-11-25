@@ -58,7 +58,7 @@ function errorPayload(error) {
  */
 function attachChatSocket(
   httpServer,
-  { chatHub, chat, users, now, corsOrigins = env.corsOrigins } = {},
+  { chatHub, chat, users, now, corsOrigins = env.corsOrigins, tokenBlacklist = null } = {},
 ) {
   const io = new Server(httpServer, {
     cors: { origin: corsOrigins, credentials: true },
@@ -69,10 +69,10 @@ function attachChatSocket(
   const service = createChatService({ chat, users, hub: chatHub, now });
   chatHub.attach(io);
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = readHandshakeToken(socket.handshake);
     const payload = token ? verifyToken(token) : null;
-    if (!payload?.sub) {
+    if (!payload?.sub || (tokenBlacklist && (await tokenBlacklist.isRevoked(payload)))) {
       const error = new Error('Silakan masuk terlebih dahulu.');
       error.data = { code: 'UNAUTHENTICATED' };
       return next(error);
