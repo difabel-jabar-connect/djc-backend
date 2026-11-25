@@ -78,23 +78,23 @@ Redis **opsional**. Jika `REDIS_URL` diisi, Redis dipakai untuk:
 
 Tanpa Redis, API berjalan seperti biasa (rate limit di memori, tanpa cache).
 
-`docker-compose.yml` menyediakan dua mode (butuh Docker Desktop yang sedang jalan):
+`docker-compose.yml` menyediakan mode standar Docker Compose v5 (butuh Docker Desktop yang sedang jalan):
 
 ```bash
 # 1. Redis saja; API tetap `npm run dev` dengan MySQL lokal.
 docker compose up -d
 # lalu isi .env: REDIS_URL=redis://localhost:6379
 
-# 2. Semuanya di Docker: Redis + MySQL 8.4 (port host 3308) + API (port 5000).
-#    User/password/database MySQL dibaca dari DB_USER, DB_PASSWORD, DB_NAME di .env.
-docker compose --profile full up -d --build
-docker compose --profile full run --rm api npx knex migrate:latest
-docker compose --profile full run --rm api npx knex seed:run   # opsional, menghapus semua data
+# 2. Semuanya di Docker (disarankan untuk tim): Redis + MySQL 8.4 (port host 3308) + Auto-Migrate + API (port 5000) dengan live reload.
+docker compose --profile full up --watch
+
+# 3. Isi data dummy demo (1x saja — menghapus data lama):
+docker compose --profile seed run --rm seed
 ```
 
-MySQL di mode 2 adalah database baru yang terpisah dari MySQL lokal. Matikan dengan `docker compose --profile full down` (tambah `-v` untuk menghapus datanya). Jika `npm run dev` lokal sedang jalan, hentikan dulu karena port 5000 dipakai container API.
+MySQL di mode 2 adalah database baru yang terpisah dari MySQL lokal. `migrate` berjalan otomatis sebelum `api` menyala. Matikan dengan `docker compose --profile full down` (tambah `-v` untuk menghapus datanya). Jika `npm run dev` lokal sedang jalan, hentikan dulu karena port 5000 dipakai container API.
 
-`Dockerfile` membangun image production (`node:24-alpine`, tanpa devDependencies).
+`Dockerfile` menggunakan multi-stage build (`node:22-alpine`): target `dev` untuk development lokal (`docker compose`) dan target `prod` (default, tanpa devDependencies) untuk deployment produksi.
 
 ## Auth
 

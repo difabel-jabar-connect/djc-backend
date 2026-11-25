@@ -1,9 +1,10 @@
-# Layanan pendukung untuk development lokal. Nilai ${...} dibaca dari .env.
+# Layanan pendukung & stack development lokal yang seragam (Docker Compose v5).
 #
-#   docker compose up -d                  -> Redis saja (API tetap `npm run dev`, MySQL lokal)
-#   docker compose --profile full up -d   -> Redis + MySQL 8.4 + API, semuanya di Docker
+#   docker compose up -d                         -> Redis saja (API & MySQL jalan lokal)
+#   docker compose --profile full up --watch     -> Redis + MySQL 8.4 + Auto-Migrate + API (live reload)
+#   docker compose --profile seed run --rm seed  -> Isi data dummy demo (hapus data lama!)
 #
-# MySQL Docker dibuka di port 3308 supaya tidak bentrok dengan MySQL lokal di 3306/3307.
+# MySQL Docker dibuka di port host 3308 supaya tidak bentrok dengan MySQL lokal di 3306/3307.
 name: djc
 
 services:
@@ -23,7 +24,7 @@ services:
 
   mysql:
     image: mysql:8.4
-    profiles: ['full']
+    profiles: ['full', 'seed']
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
       MYSQL_DATABASE: ${DB_NAME:-difabel_jabar_connect}
@@ -40,15 +41,70 @@ services:
       retries: 30
     restart: unless-stopped
 
-  api:
-    build: .
-    profiles: ['full']
-    env_file: .env
+  migrate:
+    build:
+      context: .
+      target: dev
+    profiles: ['full', 'seed']
+    env_file:
+      - path: .env
+        required: false
     environment:
       NODE_ENV: development
       DB_HOST: mysql
       DB_PORT: 3306
+      DB_USER: ${DB_USER:-djc}
+      DB_PASSWORD: ${DB_PASSWORD:-djcpass}
+      DB_NAME: ${DB_NAME:-difabel_jabar_connect}
+    command: ['npx', 'knex', 'migrate:latest']
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: 'no'
+
+  seed:
+    build:
+      context: .
+      target: dev
+    profiles: ['seed']
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: development
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-djc}
+      DB_PASSWORD: ${DB_PASSWORD:-djcpass}
+      DB_NAME: ${DB_NAME:-difabel_jabar_connect}
+      SEED_PASSWORD: ${SEED_PASSWORD:-Demo12345}
+    command: ['npx', 'knex', 'seed:run']
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      target: dev
+    profiles: ['full']
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-djc}
+      DB_PASSWORD: ${DB_PASSWORD:-djcpass}
+      DB_NAME: ${DB_NAME:-difabel_jabar_connect}
       REDIS_URL: redis://redis:6379
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     ports:
       - '5000:5000'
     depends_on:
@@ -56,6 +112,20 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./src
+          target: /app/src
+        - action: sync+restart
+          path: ./db
+          target: /app/db
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./package-lock.json
     restart: unless-stopped
 
 volumes:

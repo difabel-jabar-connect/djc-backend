@@ -1,0 +1,46 @@
+name: CI Backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: difabel_jabar_connect
+          MYSQL_USER: djc
+          MYSQL_PASSWORD: djcpass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -prootpass"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+        env:
+          DB_TEST: '1'
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: djc
+          DB_PASSWORD: djcpass
+          DB_NAME: difabel_jabar_connect
+          JWT_SECRET: ci-test-secret-only-not-for-production-use-0123456789abcdef
