@@ -9,15 +9,16 @@ function readToken(req) {
   return req.cookies?.[COOKIE_NAME];
 }
 
-// NFR-SEC-05: akses yang ditolak dicatat ke log server.
+// NFR-SEC-05 & OWASP A09: akses yang ditolak dicatat ke log server tanpa query string.
 function logDenied(req, status, role) {
   if (env.isTest) return;
+  const safeRoute = `${req.baseUrl || ''}${req.path || ''}` || req.path || '/';
   console.warn(
     JSON.stringify({
       event: 'access_denied',
       status,
       method: req.method,
-      route: req.originalUrl,
+      route: safeRoute,
       ip: req.ip,
       role: role ?? null,
       at: new Date().toISOString(),
@@ -25,15 +26,26 @@ function logDenied(req, status, role) {
   );
 }
 
-/** Wajib login. Mengisi req.auth = { userId, role } dari cookie djc_token atau header Bearer. */
-function requireAuth(req, res, next) {
+/** Wajib login. Mengisi req.auth dari cookie djc_token atau header Bearer dan memeriksa denylist. */
+async function requireAuth(req, res, next) {
   const token = readToken(req);
   const payload = token ? verifyToken(token) : null;
   if (!payload?.sub) {
     logDenied(req, 401);
     return next(new ApiError(401, 'UNAUTHENTICATED', 'Silakan masuk terlebih dahulu.'));
   }
-  req.auth = { userId: payload.sub, role: payload.role };
+  const blacklist = req.app?.locals?.tokenBlacklist;
+  if (blacklist && (await blacklist.isRevoked(payload))) {
+    logDenied(req, 401, payload.role);
+    return next(new ApiError(401, 'UNAUTHENTICATED', 'Silakan masuk terlebih dahulu.'));
+  }
+  req.auth = {
+    userId: payload.sub,
+    role: payload.role,
+    jti: payload.jti ?? null,
+    iat: payload.iat ?? null,
+    exp: payload.exp ?? null,
+  };
   return next();
 }
 

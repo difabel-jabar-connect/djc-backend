@@ -373,15 +373,16 @@ test('lupa kata sandi mengirim tautan reset berisi token', async () => {
   assert.ok(resetTokenFrom(mailer.sent[0]));
 });
 
-test('lupa kata sandi: email asing 404, email tidak valid 400', async () => {
+test('lupa kata sandi: email asing tetap 200 (anti-enumeration), email tidak valid 400', async () => {
   const mailer = fakeMailer();
   const app = createApp({ users: fakeUsers(), mailer });
 
   const unknown = await request(app)
     .post('/api/v1/auth/password/forgot')
     .send({ email: 'tidakada@djc.test' });
-  assert.equal(unknown.status, 404);
-  assert.equal(unknown.body.error.code, 'NOT_FOUND');
+  assert.equal(unknown.status, 200);
+  assert.equal(unknown.body.data.sent, true);
+  assert.equal(mailer.sent.length, 0);
 
   const invalid = await request(app)
     .post('/api/v1/auth/password/forgot')
@@ -459,4 +460,76 @@ test('permintaan lupa kata sandi berulang dibatasi 429', async () => {
   const blocked = await forgot();
   assert.equal(blocked.status, 429);
   assert.equal(blocked.body.error.code, 'TOO_MANY_REQUESTS');
+});
+
+test('OWASP A07: logout langsung mencabut JWT sehingga token lama ditolak 401', async () => {
+  const users = fakeUsers();
+  await seedUser(users);
+  const app = createApp({ users });
+  const login = await request(app)
+    .post('/api/v1/auth/login')
+    .send({ email: 'budi@djc.test', password: 'Demo12345' });
+  const bearer = `Bearer ${login.body.data.token}`;
+
+  assert.equal(
+    (await request(app).get('/api/v1/auth/me').set('Authorization', bearer)).status,
+    200,
+  );
+  assert.equal(
+    (await request(app).post('/api/v1/auth/logout').set('Authorization', bearer)).status,
+    200,
+  );
+
+  const replay = await request(app).get('/api/v1/auth/me').set('Authorization', bearer);
+  assert.equal(replay.status, 401);
+  assert.equal(replay.body.error.code, 'UNAUTHENTICATED');
+});
+
+test('OWASP A07: reset kata sandi mencabut seluruh JWT lama milik user', async () => {
+  const users = fakeUsers();
+  const mailer = fakeMailer();
+  await seedUser(users);
+  const app = createApp({ users, mailer });
+
+  const login = await request(app)
+    .post('/api/v1/auth/login')
+    .send({ email: 'budi@djc.test', password: 'Demo12345' });
+  const oldBearer = `Bearer ${login.body.data.token}`;
+
+  await request(app).post('/api/v1/auth/password/forgot').send({ email: 'budi@djc.test' });
+  const resetRes = await request(app)
+    .post('/api/v1/auth/password/reset')
+    .send({ token: resetTokenFrom(mailer.sent[0]), password: 'SandiBaru123' });
+  assert.equal(resetRes.status, 200);
+
+  const replayOld = await request(app).get('/api/v1/auth/me').set('Authorization', oldBearer);
+  assert.equal(replayOld.status, 401);
+});
+
+test('OWASP A02/A04/A05: header keamanan, Cache-Control no-store, dan rate limit register/global', async () => {
+  const users = fakeUsers();
+  await seedUser(users);
+  const app = createApp({ users, pingDb: async () => {}, registerLimit: 1, apiLimit: 4 });
+
+  const login = await request(app)
+    .post('/api/v1/auth/login')
+    .send({ email: 'budi@djc.test', password: 'Demo12345' });
+  assert.equal(login.headers['referrer-policy'], 'no-referrer');
+  assert.equal(login.headers['cross-origin-resource-policy'], 'same-site');
+  assert.equal(login.headers['x-frame-options'], 'DENY');
+  assert.match(login.headers['cache-control'] ?? '', /no-store/);
+
+  const reg1 = await request(app)
+    .post('/api/v1/auth/register')
+    .send({ ...customer, email: 'baru1@contoh.id' });
+  assert.equal(reg1.status, 201);
+  const reg2 = await request(app)
+    .post('/api/v1/auth/register')
+    .send({ ...customer, email: 'baru2@contoh.id' });
+  assert.equal(reg2.status, 429);
+
+  // Request ke-5 melewati apiLimit: 4.
+  await request(app).get('/api/v1/health');
+  const limited = await request(app).get('/api/v1/health');
+  assert.equal(limited.status, 429);
 });

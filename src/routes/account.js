@@ -9,6 +9,7 @@ const { ApiError, sendSuccess } = require('../utils/response');
 const { validate } = require('../utils/validate');
 const { toAuthUser } = require('./authUser');
 const { image, uploadJson } = require('./imageUpload');
+const { signToken, setTokenCookie } = require('../utils/token');
 
 const MAX_ADDRESSES = 10;
 
@@ -136,7 +137,14 @@ function toAddressChanges(body) {
  *   PATCH /me, PUT /me/password, PUT|DELETE /me/photo,
  *   GET|POST /me/addresses, PATCH|DELETE /me/addresses/:id
  */
-function createAccountRouter({ users, addresses, cloudinary, redis = null, loginLimit = 10 }) {
+function createAccountRouter({
+  users,
+  addresses,
+  cloudinary,
+  redis = null,
+  tokenBlacklist = null,
+  loginLimit = 10,
+}) {
   const router = express.Router();
   router.use(requireAuth, requireActiveUser({ users }));
 
@@ -192,6 +200,10 @@ function createAccountRouter({ users, addresses, cloudinary, redis = null, login
     await checkCurrentPassword(user, body.current_password);
     const passwordHash = await bcrypt.hash(body.new_password, env.auth.bcryptSaltRounds);
     await users.updatePassword(user.id, passwordHash, { verifyEmail: false });
+    // Cabut semua token lama di perangkat lain, lalu terbitkan cookie baru untuk sesi ini.
+    const { token, jti, expiresAt } = signToken(user);
+    await tokenBlacklist?.revokeAllForUser(user.id, { exceptJti: jti });
+    setTokenCookie(res, token, { expiresAt });
     return sendSuccess(res, { password_changed: true });
   });
 

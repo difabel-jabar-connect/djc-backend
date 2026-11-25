@@ -251,7 +251,9 @@ test('email tidak bisa diganti dari Akun Saya (PUT /me/email tidak ada)', async 
 test('PUT/DELETE /me/photo: upload ke Cloudinary lalu simpan URL; gagal 503', async () => {
   const user = await makeUser();
   const { as, cloudinary } = setup(user);
-  const image = `data:image/png;base64,${Buffer.from('gambar').toString('base64')}`;
+  // PNG 1x1 valid dengan magic bytes PNG (\x89PNG\r\n\x1a\n).
+  const image =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
   const res = await as('put', '/photo').send({ image });
   assert.equal(res.status, 200);
@@ -260,6 +262,12 @@ test('PUT/DELETE /me/photo: upload ke Cloudinary lalu simpan URL; gagal 503', as
 
   const bad = await as('put', '/photo').send({ image: 'bukan-gambar' });
   assert.equal(bad.status, 400);
+
+  // Spoofed MIME: header data:image/png tapi isinya bukan magic bytes PNG.
+  const spoofed = await as('put', '/photo').send({
+    image: `data:image/png;base64,${Buffer.from('<svg onload=alert(1)>').toString('base64')}`,
+  });
+  assert.equal(spoofed.status, 400);
 
   const removed = await as('delete', '/photo');
   assert.equal(removed.status, 200);

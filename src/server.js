@@ -7,11 +7,13 @@ const chatRepository = require('./repositories/chatRepository');
 const userRepository = require('./repositories/userRepository');
 const { createAutoCancel } = require('./services/autoCancel');
 const { createChatHub } = require('./services/chat');
+const { createTokenBlacklist } = require('./services/tokenBlacklist');
 const { attachChatSocket } = require('./realtime/chatSocket');
 
-// Hub yang sama dipakai REST dan Socket.io, supaya pesan dari REST ikut di-broadcast.
+// Hub & denylist JWT yang sama dipakai REST dan Socket.io.
 const chatHub = createChatHub();
-const app = createApp({ chatHub });
+const tokenBlacklist = createTokenBlacklist({ redis: redis.getClient() });
+const app = createApp({ chatHub, tokenBlacklist });
 
 const server = app.listen(env.port, () => {
   console.log(`API berjalan di http://localhost:${env.port}/api/v1 (${env.nodeEnv})`);
@@ -22,6 +24,7 @@ const io = attachChatSocket(server, {
   chatHub,
   chat: chatRepository,
   users: userRepository,
+  tokenBlacklist,
 });
 
 // Auto-cancel booking `requested` yang lewat 24 jam (BE-08), dicek setiap beberapa menit.
