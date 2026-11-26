@@ -3,6 +3,7 @@ const { z } = require('zod');
 const { requireAuth, requireRole, requireActiveUser } = require('../middlewares/auth');
 const { ApiError, sendSuccess } = require('../utils/response');
 const { validate } = require('../utils/validate');
+const { shortName } = require('./bookings');
 
 const COMMUNICATION_PREFS = ['chat', 'call', 'video_call', 'bisindo'];
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -134,9 +135,51 @@ const availabilitySchema = z
     }
   });
 
-/** P3 GET /providers/:id (publik, hanya koordinat kasar). */
-function createProvidersRouter({ providers }) {
+const reviewPageSchema = z.object({
+  page: z.coerce.number().int().min(1, 'Halaman minimal 1.').max(10_000).optional(),
+  limit: z.coerce.number().int().min(1).max(50, 'Maksimal 50 per halaman.').optional(),
+});
+
+/** Ulasan dalam bentuk respons; `own` = dasbor provider (ikut status sembunyi dari admin). */
+function toReview(row, { own = false } = {}) {
+  const review = {
+    id: row.id,
+    rating: Number(row.rating),
+    comment: row.comment ?? null,
+    created_at: row.created_at,
+    // Data model: nama pengulas = nama depan + inisial nama belakang.
+    reviewer_name: shortName(row.customer_name),
+    service_title: row.service_title,
+  };
+  if (own) {
+    review.booking_code = row.booking_code;
+    review.is_hidden = Boolean(row.is_hidden);
+    review.hidden_reason = row.hidden_reason ?? null;
+  }
+  return review;
+}
+
+async function sendReviewPage(res, reviews, providerId, query, options) {
+  const { page = 1, limit = 10 } = validate(reviewPageSchema, query);
+  const { items, total } = await reviews.listByProvider(providerId, { ...options, page, limit });
+  return sendSuccess(
+    res,
+    items.map((row) => toReview(row, { own: options.includeHidden })),
+    { meta: { page, limit, total_items: total, total_pages: Math.ceil(total / limit) } },
+  );
+}
+
+/** P3 GET /providers/:id (publik, hanya koordinat kasar) dan ulasannya. */
+function createProvidersRouter({ providers, reviews }) {
   const router = express.Router();
+
+  // P4 GET /providers/:id/reviews: ulasan publik (yang disembunyikan admin tidak ikut).
+  router.get('/:id/reviews', async (req, res) => {
+    const visible =
+      idSchema.safeParse(req.params.id).success && (await reviews.isPublicProvider(req.params.id));
+    if (!visible) throw new ApiError(404, 'NOT_FOUND', 'Penyedia jasa tidak ditemukan.');
+    return sendReviewPage(res, reviews, req.params.id, req.query, { includeHidden: false });
+  });
 
   router.get('/:id', async (req, res) => {
     const profile = idSchema.safeParse(req.params.id).success
@@ -150,7 +193,7 @@ function createProvidersRouter({ providers }) {
 }
 
 /** /provider/profile dan /provider/availability milik provider yang sedang login (SP1-07). */
-function createProviderSelfRouter({ providers, users }) {
+function createProviderSelfRouter({ providers, reviews, users }) {
   const router = express.Router();
   router.use(requireAuth, requireRole('provider'), requireActiveUser({ users }));
 
@@ -185,6 +228,12 @@ function createProviderSelfRouter({ providers, users }) {
       body,
     );
     return sendSuccess(res, profile);
+  });
+
+  // GET /provider/reviews: riwayat ulasan milik provider, termasuk yang disembunyikan admin.
+  router.get('/reviews', async (req, res) => {
+    const profile = await ownProfile(req);
+    return sendReviewPage(res, reviews, profile.id, req.query, { includeHidden: true });
   });
 
   router.get('/availability', async (req, res) => {

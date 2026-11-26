@@ -135,6 +135,40 @@ test(
       .set('Authorization', auth);
     assert.equal(detail.body.data.can_review, false);
 
+    // P4 dan GET /provider/reviews (#42): profil publik hanya untuk provider verified dan
+    // tidak pernah membawa ulasan yang disembunyikan; provider melihat semuanya.
+    const publicReviews = () => request(app).get(`/api/v1/providers/${ids.provider}/reviews`);
+    assert.equal((await publicReviews()).status, 404, 'provider pending tidak publik');
+    await knex('provider_profiles').where({ id: ids.provider }).update({
+      address_detail: 'Jl. Uji Ulasan',
+      lat: -6.9,
+      lng: 107.6,
+      public_lat: -6.9,
+      public_lng: 107.6,
+      verification_status: 'verified',
+    });
+    await knex('reviews')
+      .where({ booking_id: done2.id })
+      .update({ is_hidden: true, hidden_reason: 'Disembunyikan untuk uji' });
+    const visible = await publicReviews();
+    assert.equal(visible.status, 200);
+    assert.deepEqual(
+      visible.body.data.map((r) => [r.rating, r.comment, r.reviewer_name, r.service_title]),
+      [[5, 'Mantap', 'Uji P.', 'Uji ulasan']],
+    );
+    const own = await request(app)
+      .get('/api/v1/provider/reviews')
+      .set(
+        'Authorization',
+        `Bearer ${signToken({ id: ids.providerUser, role: 'provider' }).token}`,
+      );
+    assert.equal(own.status, 200);
+    assert.deepEqual(own.body.data.map((r) => [r.rating, r.is_hidden]).sort(), [
+      [2, true],
+      [5, false],
+    ]);
+    await knex('reviews').where({ booking_id: done2.id }).update({ is_hidden: false });
+
     // Ulasan bersamaan untuk provider yang sama tidak boleh deadlock (review #24): baris
     // provider dikunci lebih dulu, jadi semuanya tersimpan bergantian.
     const reviewRepository = require('../src/repositories/reviewRepository');
@@ -175,5 +209,25 @@ test(
       .get(`/api/v1/bookings/${old.id}`)
       .set('Authorization', auth);
     assert.equal(asCustomer.body.data.history.at(-1).changed_by_role, 'system');
+
+    // R-13: booking yang sedang dikunci transaksi lain (mis. provider menerima) dilewati
+    // tanpa membatalkan booking kedaluwarsa lainnya, lalu diproses di putaran berikutnya.
+    const busy = booking('requested', { created_at: '2000-01-01 00:00:00.000000' });
+    const idle = booking('requested', { created_at: '2000-01-01 00:00:00.000000' });
+    await knex('bookings').insert([busy, idle]);
+    const trx = await knex.transaction();
+    await trx('bookings').where({ id: busy.id }).forUpdate().first();
+    const firstRound = await bookingRepository.cancelExpiredRequested({
+      createdBefore: new Date('2000-01-02T00:00:00Z'),
+      reason: REASON,
+    });
+    await trx.rollback();
+    assert.ok(firstRound.includes(idle.id));
+    assert.ok(!firstRound.includes(busy.id), 'booking terkunci dilewati');
+    const secondRound = await bookingRepository.cancelExpiredRequested({
+      createdBefore: new Date('2000-01-02T00:00:00Z'),
+      reason: REASON,
+    });
+    assert.ok(secondRound.includes(busy.id));
   },
 );

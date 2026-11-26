@@ -94,10 +94,51 @@ const providerUser = { id: randomUUID(), role: 'provider', status: 'active' };
 const customerUser = { id: randomUUID(), role: 'customer', status: 'active' };
 const bearer = (user) => `Bearer ${signToken(user).token}`;
 
+/** Repository ulasan palsu: dua ulasan tampil dan satu disembunyikan admin. */
+function fakeReviews(providers) {
+  const rows = [
+    {
+      rating: 5,
+      comment: 'Rapi',
+      is_hidden: 0,
+      hidden_reason: null,
+      customer_name: 'Budi Santoso',
+    },
+    { rating: 4, comment: null, is_hidden: 0, hidden_reason: null, customer_name: 'Ani' },
+    {
+      rating: 1,
+      comment: 'Kasar <script>',
+      is_hidden: 1,
+      hidden_reason: 'Bahasa tidak sopan',
+      customer_name: 'Citra Pratiwi',
+    },
+  ].map((row, i) => ({
+    ...row,
+    id: randomUUID(),
+    created_at: `2026-11-2${5 - i}T00:00:00.000Z`,
+    service_title: 'Servis kipas',
+    booking_code: `DJC-REV0000${i}`,
+  }));
+  const calls = [];
+  return {
+    calls,
+    async isPublicProvider(id) {
+      return Boolean(await providers.findPublicById(id));
+    },
+    async listByProvider(providerId, options) {
+      calls.push([providerId, options]);
+      const items = rows.filter((row) => options.includeHidden || !row.is_hidden);
+      const start = (options.page - 1) * options.limit;
+      return { items: items.slice(start, start + options.limit), total: items.length };
+    },
+  };
+}
+
 function setup(options = {}) {
   const providers = fakeProviders({ userId: providerUser.id, ...options });
+  const reviews = fakeReviews(providers);
   const users = fakeUsers(providerUser, customerUser, ...(options.extraUsers ?? []));
-  return { providers, app: createApp({ providers, users }) };
+  return { providers, reviews, app: createApp({ providers, reviews, users }) };
 }
 
 test('fuzzCoordinate membulatkan koordinat ke 2 desimal (~1,1 km)', () => {
@@ -278,4 +319,62 @@ test('endpoint /provider: 401 tanpa token, 403 untuk customer, 403 untuk provide
     .send({ availability: [] });
   assert.equal(suspendedWrite.status, 403);
   assert.equal(suspendedWrite.body.error.code, 'ACCOUNT_SUSPENDED');
+});
+
+test('GET /providers/:id/reviews: ulasan publik tanpa yang disembunyikan, nama pengulas disingkat', async () => {
+  const { app, providers, reviews } = setup({ verification: 'verified' });
+
+  const res = await request(app).get(`/api/v1/providers/${providers.profile.id}/reviews?limit=5`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(reviews.calls[0], [
+    providers.profile.id,
+    { includeHidden: false, page: 1, limit: 5 },
+  ]);
+  assert.deepEqual(res.body.meta, { page: 1, limit: 5, total_items: 2, total_pages: 1 });
+  assert.deepEqual(
+    res.body.data.map((r) => [r.reviewer_name, r.rating, r.comment]),
+    [
+      ['Budi S.', 5, 'Rapi'],
+      ['Ani', 4, null],
+    ],
+  );
+  for (const key of ['is_hidden', 'hidden_reason', 'booking_code']) {
+    assert.equal(key in res.body.data[0], false, `${key} tidak dikirim ke publik`);
+  }
+  assert.doesNotMatch(JSON.stringify(res.body), /Santoso|Bahasa tidak sopan/);
+
+  assert.equal(
+    (await request(app).get(`/api/v1/providers/${providers.profile.id}/reviews?limit=51`)).status,
+    400,
+  );
+});
+
+test('GET /providers/:id/reviews 404 untuk penyedia yang belum verified atau id tidak valid', async () => {
+  const { app, providers } = setup({ verification: 'pending' });
+  assert.equal(
+    (await request(app).get(`/api/v1/providers/${providers.profile.id}/reviews`)).status,
+    404,
+  );
+  assert.equal((await request(app).get('/api/v1/providers/abc/reviews')).status, 404);
+});
+
+test('GET /provider/reviews: penyedia membaca semua ulasannya termasuk yang disembunyikan', async () => {
+  const { app, reviews } = setup({ verification: 'verified' });
+
+  const res = await request(app)
+    .get('/api/v1/provider/reviews')
+    .set('Authorization', bearer(providerUser));
+  assert.equal(res.status, 200);
+  assert.deepEqual(reviews.calls[0][1], { includeHidden: true, page: 1, limit: 10 });
+  assert.equal(res.body.data.length, 3);
+  const hidden = res.body.data.find((r) => r.is_hidden);
+  assert.equal(hidden.hidden_reason, 'Bahasa tidak sopan');
+  assert.equal(hidden.reviewer_name, 'Citra P.');
+  assert.match(hidden.booking_code, /^DJC-/);
+
+  const forbidden = await request(app)
+    .get('/api/v1/provider/reviews')
+    .set('Authorization', bearer(customerUser));
+  assert.equal(forbidden.status, 403);
+  assert.equal((await request(app).get('/api/v1/provider/reviews')).status, 401);
 });
