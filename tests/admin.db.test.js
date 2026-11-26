@@ -135,8 +135,24 @@ test(
     const reviewList = await call('get', `/reviews?provider_id=${ids.provider}`);
     assert.equal(reviewList.status, 200);
     assert.deepEqual(
-      reviewList.body.data.map((r) => [r.id, r.is_hidden, r.customer.name]),
-      [[ids.review, false, 'Uji Pelanggan']],
+      reviewList.body.data.map((r) => [r.id, r.is_hidden, r.customer.name, r.booking_code]),
+      [[ids.review, false, 'Uji Pelanggan', done.code]],
+    );
+
+    // AD10: monitoring pesanan lintas akun, filter status dan kode.
+    const bookingList = await call('get', `/bookings?status=requested,accepted&q=${open1.code}`);
+    assert.equal(bookingList.status, 200);
+    assert.deepEqual(
+      bookingList.body.data.map((b) => [b.id, b.status, b.category.id]),
+      [[open1.id, 'requested', category.id]],
+    );
+    const inRange = await call('get', '/bookings?date_from=2026-11-09&date_to=2026-11-09&limit=50');
+    assert.ok(inRange.body.data.some((b) => b.id === done.id));
+    assert.equal(
+      (await call('get', '/bookings?date_from=2026-11-10&q=DJC-A')).body.data.filter((b) =>
+        [done.id, open1.id, open2.id].includes(b.id),
+      ).length,
+      0,
     );
     assert.equal(
       (await call('get', `/reviews?provider_id=${ids.provider}&hidden=true`)).body.data.length,
@@ -223,5 +239,20 @@ test(
       'unhide_review',
       'suspend_user',
     ]);
+
+    // AD11: jejak audit yang sama lewat API, terbaru dulu, dengan nama admin.
+    const audit = await call('get', `/audit?admin_id=${ids.admin}&limit=50`);
+    assert.equal(audit.status, 200);
+    assert.deepEqual(
+      audit.body.data.map((a) => a.action),
+      [...actions].reverse(),
+    );
+    assert.equal(audit.body.data[0].target_id, ids.providerUser);
+    assert.ok(audit.body.data[0].admin.name);
+    const onlyReview = await call('get', `/audit?target_type=review&target_id=${ids.review}`);
+    assert.deepEqual(
+      onlyReview.body.data.map((a) => a.action),
+      ['unhide_review', 'hide_review'],
+    );
   },
 );

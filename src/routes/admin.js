@@ -115,6 +115,55 @@ const listUsersSchema = z.object({
 });
 
 /** Mengirim satu halaman daftar dengan meta yang sama seperti GET /bookings dan /services. */
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const date = (label) => blank(z.string().regex(DATE_PATTERN, `${label} berformat YYYY-MM-DD.`));
+const listBookingsSchema = z
+  .object({
+    status: blank(
+      z.preprocess(
+        (value) => String(value).split(','),
+        z.array(
+          z.enum(
+            BOOKING_STATUSES,
+            `Status tidak dikenal. Pilihan: ${BOOKING_STATUSES.join(', ')}.`,
+          ),
+        ),
+      ),
+    ),
+    q: search,
+    date_from: date('date_from'),
+    date_to: date('date_to'),
+    ...pagination,
+  })
+  .refine((data) => !data.date_from || !data.date_to || data.date_from <= data.date_to, {
+    message: 'date_from tidak boleh setelah date_to.',
+    path: ['date_from'],
+  });
+
+const ADMIN_ACTIONS = [
+  'verify_provider',
+  'reject_provider',
+  'hide_review',
+  'unhide_review',
+  'suspend_user',
+  'activate_user',
+  'create_category',
+  'update_category',
+  'create_provider',
+];
+const listAuditSchema = z.object({
+  action: blank(z.enum(ADMIN_ACTIONS, `Aksi tidak dikenal. Pilihan: ${ADMIN_ACTIONS.join(', ')}.`)),
+  target_type: blank(
+    z.enum(
+      ['user', 'provider_profile', 'review', 'category'],
+      'target_type: user, provider_profile, review, atau category.',
+    ),
+  ),
+  target_id: blank(z.uuid('target_id harus berupa UUID.')),
+  admin_id: blank(z.uuid('admin_id harus berupa UUID.')),
+  ...pagination,
+});
+
 function sendPage(res, { items, total }, { page, limit }, toItem) {
   return sendSuccess(res, items.map(toItem), {
     meta: { page, limit, total_items: total, total_pages: Math.ceil(total / limit) },
@@ -210,6 +259,7 @@ function createAdminRouter({ admin, users }) {
     return sendPage(res, result, { page, limit }, (row) => ({
       id: row.id,
       booking_id: row.booking_id,
+      booking_code: row.booking_code,
       rating: Number(row.rating),
       comment: row.comment,
       is_hidden: Boolean(row.is_hidden),
@@ -236,6 +286,71 @@ function createAdminRouter({ admin, users }) {
   });
 
   // POST /admin/providers — akun mitra dibuat admin (API-04)
+  // AD10: monitoring semua pesanan (hanya baca). Kontak dan alamat tidak dikirim.
+  router.get('/bookings', async (req, res) => {
+    const {
+      page = 1,
+      limit = 12,
+      status,
+      date_from: dateFrom,
+      date_to: dateTo,
+      q,
+    } = validate(listBookingsSchema, req.query);
+    const result = await admin.listBookings({ statuses: status, q, dateFrom, dateTo, page, limit });
+    return sendPage(res, result, { page, limit }, (row) => ({
+      id: row.id,
+      code: row.code,
+      status: row.status,
+      scheduled_date:
+        row.scheduled_date instanceof Date
+          ? row.scheduled_date.toISOString().slice(0, 10)
+          : String(row.scheduled_date).slice(0, 10),
+      start_time: String(row.start_time).slice(0, 5),
+      service_mode: row.service_mode,
+      location_area: row.location_area,
+      pricing_type_snapshot: row.pricing_type_snapshot,
+      estimated_total: Number(row.estimated_total),
+      final_total: row.final_total === null ? null : Number(row.final_total),
+      cancelled_by: row.cancelled_by,
+      status_reason: row.status_reason,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      service: { id: row.service_id, title: row.service_title },
+      category: { id: row.category_id, name: row.category_name },
+      provider: { id: row.provider_id, display_name: row.provider_name, city: row.provider_city },
+      customer: { id: row.customer_id, name: row.customer_name },
+    }));
+  });
+
+  // AD11: jejak audit admin_actions (hanya baca), terbaru dulu.
+  router.get('/audit', async (req, res) => {
+    const {
+      page = 1,
+      limit = 12,
+      action,
+      target_type: targetType,
+      target_id: targetId,
+      admin_id: adminId,
+    } = validate(listAuditSchema, req.query);
+    const result = await admin.listAdminActions({
+      action,
+      targetType,
+      targetId,
+      adminId,
+      page,
+      limit,
+    });
+    return sendPage(res, result, { page, limit }, (row) => ({
+      id: row.id,
+      action: row.action,
+      target_type: row.target_type,
+      target_id: row.target_id,
+      note: row.note,
+      created_at: row.created_at,
+      admin: { id: row.admin_id, name: row.admin_name },
+    }));
+  });
+
   router.post('/providers', async (req, res) => {
     const body = validate(createProviderSchema, req.body);
     const passwordHash = await bcrypt.hash(body.password, env.auth.bcryptSaltRounds);

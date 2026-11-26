@@ -13,7 +13,7 @@
 
 Kontrak ini hanya mencakup **core flow** `Search → Provider → Location → Booking → Review` beserta autentikasi. Endpoint pengelolaan provider, admin, dan Cloudinary didaftar di bagian akhir sebagai rencana, belum dirinci.
 
-Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A8, kategori C1–C3, profil provider P3, P5, P6, upload foto dan portofolio P7, P8, pencarian layanan L1, L2, booking B1–B3, status S1–S5, ulasan R1, serta admin AD1–AD9.
+Seluruh endpoint di dokumen ini berstatus `Proposed` sampai direview. Yang sudah diimplementasikan: `GET /api/v1/health`, auth A1–A8, kategori C1–C3, profil provider P3, P5, P6, upload foto dan portofolio P7, P8, pencarian layanan L1, L2, booking B1–B3, status S1–S5, ulasan R1, serta admin AD1–AD11.
 
 ---
 
@@ -962,7 +962,7 @@ Request body:
 | Field                          | Tipe                           | Wajib              | Aturan                                                                                                                                                                                                                     |
 | ------------------------------ | ------------------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `service_id`                   | uuid                           | ya                 | Layanan aktif milik provider `verified` dan `active`                                                                                                                                                                       |
-| `scheduled_date`               | `YYYY-MM-DD`                   | ya                 | Tanggal yang benar-benar ada (mis. `2026-02-30` ditolak), tidak di masa lalu                                                                                                                                               |
+| `scheduled_date`               | `YYYY-MM-DD`                   | ya                 | Tanggal yang benar-benar ada (mis. `2026-02-30` ditolak), tidak di masa lalu, paling jauh 90 hari dari hari ini (WIB)                                                                                                      |
 | `start_time`                   | `HH:mm`                        | ya                 | Di dalam slot `provider_availability` hari tersebut dan pesanan selesai paling lambat di akhir slot (jam mulai + `quantity` jam; selain hourly dihitung 1 jam); jika tanggalnya hari ini, tidak sebelum jam sekarang (WIB) |
 | `service_mode`                 | `at_customer` \| `at_provider` | ya                 | Diizinkan oleh `services.service_mode`                                                                                                                                                                                     |
 | `quantity`                     | number                         | jika hourly        | Jam, ≥ `min_hours`; selain hourly selalu 1                                                                                                                                                                                 |
@@ -990,13 +990,14 @@ Sukses `201`: objek booking seperti B3.
 
 Error:
 
-| HTTP | `code`              | Contoh pesan                                                                                                                                                                                                 |
-| ---- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 400  | `VALIDATION_ERROR`  | "Jam yang dipilih berada di luar jam operasional penyedia." / "Minimal 2 jam untuk layanan ini." / "Jam yang dipilih sudah lewat." / "Durasi pesanan melewati jam operasional penyedia (tutup pukul 16:00)." |
-| 401  | `UNAUTHENTICATED`   | "Silakan masuk dengan akun Customer untuk memesan layanan ini."                                                                                                                                              |
-| 403  | `FORBIDDEN`         | Pemanggil bukan customer                                                                                                                                                                                     |
-| 403  | `ACCOUNT_SUSPENDED` | "Akun Anda sedang ditangguhkan."                                                                                                                                                                             |
-| 404  | `NOT_FOUND`         | Layanan tidak ada, nonaktif, atau provider tidak publik                                                                                                                                                      |
+| HTTP | `code`              | Contoh pesan                                                                                                                                                                                                    |
+| ---- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `VALIDATION_ERROR`  | "Jam yang dipilih berada di luar jam operasional penyedia." / "Minimal 2 jam untuk layanan ini." / "Jam yang dipilih sudah lewat." / "Durasi pesanan melewati jam operasional penyedia (tutup pukul 16:00)."    |
+| 401  | `UNAUTHENTICATED`   | "Silakan masuk dengan akun Customer untuk memesan layanan ini."                                                                                                                                                 |
+| 403  | `FORBIDDEN`         | Pemanggil bukan customer                                                                                                                                                                                        |
+| 403  | `ACCOUNT_SUSPENDED` | "Akun Anda sedang ditangguhkan."                                                                                                                                                                                |
+| 404  | `NOT_FOUND`         | Layanan tidak ada, nonaktif, atau provider tidak publik                                                                                                                                                         |
+| 409  | `CONFLICT`          | "Anda sudah punya pesanan aktif ke penyedia ini di jam yang sama." (customer yang sama, booking aktif bertabrakan) / "Jam ini sudah terisi pesanan lain. Silakan pilih jam lain." (jam sudah diterima provider) |
 
 ### B2 `GET /bookings`
 
@@ -1028,10 +1029,16 @@ Contoh sukses `200`, dilihat customer saat status `accepted`, mode `at_customer`
     "id": "b1…",
     "code": "DJC-0001",
     "status": "accepted",
-    "service": { "id": "s5…", "title": "Bersih-bersih rumah" },
+    "service": {
+      "id": "s5…",
+      "title": "Bersih-bersih rumah",
+      "category": { "id": "c2…", "name": "Kebersihan", "slug": "kebersihan" }
+    },
     "provider": {
       "id": "p3…",
       "display_name": "Asep Kurniawan",
+      "rating_avg": 4.5,
+      "rating_count": 2,
       "city": "Kota Bogor",
       "district": "Bogor Tengah",
       "phone": "+6281…",
@@ -1158,17 +1165,19 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 ACCOUNT_SUSPENDED`, `
 
 Semua endpoint di bagian ini khusus admin (`requireAuth` + `requireRole('admin')` + `requireActiveUser()`): tanpa token `401`, bukan admin `403 FORBIDDEN`, admin `suspended` `403 ACCOUNT_SUSPENDED`. Setiap perubahan dicatat append-only ke `admin_actions` dalam transaksi yang sama.
 
-| #   | Endpoint                          | Aksi `admin_actions`                | Ringkas                                              |
-| --- | --------------------------------- | ----------------------------------- | ---------------------------------------------------- |
-| AD1 | `GET /admin/dashboard`            | –                                   | Ringkasan metrik user, provider, booking, dan ulasan |
-| AD2 | `POST /admin/providers`           | `create_provider`                   | Admin membuat akun mitra (API-04), profil `pending`  |
-| AD3 | `PUT /admin/providers/:id/verify` | `verify_provider`/`reject_provider` | Verifikasi atau tolak mitra                          |
-| AD4 | `PUT /admin/reviews/:id/moderate` | `hide_review`/`unhide_review`       | Sembunyikan/tampilkan ulasan, rating dihitung ulang  |
-| AD5 | `PUT /admin/users/:id/suspend`    | `suspend_user`                      | Tangguhkan akun, booking aktif dibatalkan berantai   |
-| AD6 | `PUT /admin/users/:id/activate`   | `activate_user`                     | Aktifkan kembali akun                                |
-| AD7 | `GET /admin/providers`            | –                                   | Daftar mitra untuk tabel verifikasi                  |
-| AD8 | `GET /admin/reviews`              | –                                   | Daftar ulasan untuk moderasi                         |
-| AD9 | `GET /admin/users`                | –                                   | Daftar akun untuk penangguhan                        |
+| #    | Endpoint                          | Aksi `admin_actions`                | Ringkas                                              |
+| ---- | --------------------------------- | ----------------------------------- | ---------------------------------------------------- |
+| AD1  | `GET /admin/dashboard`            | –                                   | Ringkasan metrik user, provider, booking, dan ulasan |
+| AD2  | `POST /admin/providers`           | `create_provider`                   | Admin membuat akun mitra (API-04), profil `pending`  |
+| AD3  | `PUT /admin/providers/:id/verify` | `verify_provider`/`reject_provider` | Verifikasi atau tolak mitra                          |
+| AD4  | `PUT /admin/reviews/:id/moderate` | `hide_review`/`unhide_review`       | Sembunyikan/tampilkan ulasan, rating dihitung ulang  |
+| AD5  | `PUT /admin/users/:id/suspend`    | `suspend_user`                      | Tangguhkan akun, booking aktif dibatalkan berantai   |
+| AD6  | `PUT /admin/users/:id/activate`   | `activate_user`                     | Aktifkan kembali akun                                |
+| AD7  | `GET /admin/providers`            | –                                   | Daftar mitra untuk tabel verifikasi                  |
+| AD8  | `GET /admin/reviews`              | –                                   | Daftar ulasan untuk moderasi                         |
+| AD9  | `GET /admin/users`                | –                                   | Daftar akun untuk penangguhan                        |
+| AD10 | `GET /admin/bookings`             | –                                   | Monitoring semua pesanan lintas akun (hanya baca)    |
+| AD11 | `GET /admin/audit`                | –                                   | Jejak audit `admin_actions` (hanya baca)             |
 
 **AD1** sukses `200`:
 
@@ -1204,8 +1213,10 @@ Semua endpoint di bagian ini khusus admin (`requireAuth` + `requireRole('admin')
 **AD7–AD9 (daftar untuk tabel admin, FE-05).** Semua memakai `page` (default 1) dan `limit` (default 12, maks 50); `meta` sama dengan B2 dan L1: `{ "page", "limit", "total_items", "total_pages" }`. Hasil kosong tetap `200` dengan `data: []`. Query tidak valid → `400 VALIDATION_ERROR`.
 
 - **AD7** `GET /admin/providers?status=pending&q=…`: `status` (`pending`/`verified`/`rejected`, opsional), `q` (nama tampilan, email, atau nomor alumni). Urutan: paling lama mendaftar dulu (antrean verifikasi). Item: `{ "id", "display_name", "alumni_reg_no", "city", "district", "has_location", "verification_status", "verified_at", "rating_avg", "rating_count", "created_at", "user": { "id", "name", "email", "phone", "status" } }`. Nomor alumni dan kontak dikirim karena admin perlu meninjaunya (FR-ADM-02); `has_location` menandai mitra yang sudah bisa diverifikasi (AD3). Alamat lengkap dan koordinat tidak dikirim.
-- **AD8** `GET /admin/reviews?hidden=true&provider_id=…`: `hidden` (`true`/`false`, opsional; tanpa filter ulasan tersembunyi ikut tampil), `provider_id` (UUID). Urutan: terbaru dulu. Item: `{ "id", "booking_id", "rating", "comment", "is_hidden", "hidden_reason", "created_at", "provider": { "id", "display_name" }, "customer": { "id", "name" } }`.
+- **AD8** `GET /admin/reviews?hidden=true&provider_id=…`: `hidden` (`true`/`false`, opsional; tanpa filter ulasan tersembunyi ikut tampil), `provider_id` (UUID). Urutan: terbaru dulu. Item: `{ "id", "booking_id", "booking_code", "rating", "comment", "is_hidden", "hidden_reason", "created_at", "provider": { "id", "display_name" }, "customer": { "id", "name" } }`.
 - **AD9** `GET /admin/users?role=provider&status=active&q=…`: `role`, `status` (`active`/`suspended`), `q` (nama atau email). Urutan: terbaru dulu. Item: `{ "id", "role", "name", "email", "phone", "status", "created_at" }`.
+- **AD10** `GET /admin/bookings?status=requested,accepted&q=…&date_from=2026-11-01&date_to=2026-11-30`: `status` (satu atau beberapa status booking, dipisah koma), `q` (kode pesanan, nama customer, nama provider, atau judul layanan), `date_from`/`date_to` (`YYYY-MM-DD`, rentang `scheduled_date`, inklusif; `date_from` tidak boleh setelah `date_to`). Urutan: jadwal terbaru dulu. Item: `{ "id", "code", "status", "scheduled_date", "start_time", "service_mode", "location_area", "pricing_type_snapshot", "estimated_total", "final_total", "cancelled_by", "status_reason", "created_at", "updated_at", "service": { "id", "title" }, "category": { "id", "name" }, "provider": { "id", "display_name", "city" }, "customer": { "id", "name" } }`. Alamat lengkap, koordinat, dan nomor telepon tidak dikirim; admin membuka detail lewat B3.
+- **AD11** `GET /admin/audit?action=suspend_user&target_type=user&target_id=…&admin_id=…`: semua filter opsional; `action` salah satu nilai enum `admin_actions.action`, `target_type` (`user`/`provider_profile`/`review`/`category`). Urutan: terbaru dulu. Item: `{ "id", "action", "target_type", "target_id", "note", "created_at", "admin": { "id", "name" } }`.
 
 Error umum: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND` (id tidak ada atau bukan UUID), `409 CONFLICT`.
 
@@ -1257,7 +1268,7 @@ CH3 respons: `{ "data": { "booking_id", "reader_id", "reader_role", "read_at", "
 
 CH4 query `page`, `limit` (maks 50). Isinya booking milik pemanggil yang masih berjalan atau sudah punya pesan, diurutkan dari aktivitas terakhir. Tiap item berisi `booking { id, code, status, service_title }`, `counterpart` (provider: `name`, `photo_url`, `photo_alt`, `disability_type`; customer: `name`, disingkat "Budi S." sebelum pesanan pernah diterima), `last_message`, `unread_count`, dan `can_send`.
 
-Socket.io (path `/socket.io`, port API). Handshake membaca cookie `djc_token`, `auth.token`, atau header `Authorization: Bearer`. Tanpa token valid, koneksi ditolak (`connect_error`, `data.code = UNAUTHENTICATED`).
+Socket.io (path `/socket.io`, port API). Handshake membaca cookie `djc_token`, `auth.token`, atau header `Authorization: Bearer`. Tanpa token valid, koneksi ditolak (`connect_error`, `data.code = UNAUTHENTICATED`). Token juga dicek ulang di setiap event: jika sudah dicabut setelah tersambung (logout, ganti atau reset kata sandi), event dibalas `{ ok: false, error: { code: "UNAUTHENTICATED" } }` lalu koneksi diputus.
 
 | Event klien    | Payload                     | Server                                                          |
 | -------------- | --------------------------- | --------------------------------------------------------------- |

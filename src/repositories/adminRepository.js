@@ -105,15 +105,94 @@ async function listReviews({ hidden, providerId, page, limit }) {
     params.push(providerId);
   }
   return paginate({
-    columns: `r.id, r.booking_id, r.rating, r.comment, r.is_hidden, r.hidden_reason, r.created_at,
+    columns: `r.id, r.booking_id, b.code AS booking_code, r.rating, r.comment, r.is_hidden,
+              r.hidden_reason, r.created_at,
               r.provider_id, p.display_name AS provider_name,
               r.customer_id, c.full_name AS customer_name`,
     from: `FROM reviews r
+           JOIN bookings b ON b.id = r.booking_id
            JOIN provider_profiles p ON p.id = r.provider_id
            JOIN users c ON c.id = r.customer_id
            ${whereClause(conditions)}`,
     params,
     orderBy: 'r.created_at DESC, r.id DESC',
+    page,
+    limit,
+  });
+}
+
+/**
+ * Daftar semua pesanan lintas akun untuk monitoring admin (hanya baca). Filter status,
+ * rentang tanggal jadwal, dan kata kunci (kode pesanan, nama customer, nama provider,
+ * judul layanan). Alamat dan nomor telepon tidak dipilih. Jadwal terbaru dulu.
+ */
+async function listBookings({ statuses, q, dateFrom, dateTo, page, limit }) {
+  const conditions = [];
+  const params = [];
+  if (statuses?.length) {
+    conditions.push(`b.status IN (${statuses.map(() => '?').join(', ')})`);
+    params.push(...statuses);
+  }
+  if (dateFrom) {
+    conditions.push('b.scheduled_date >= ?');
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    conditions.push('b.scheduled_date <= ?');
+    params.push(dateTo);
+  }
+  if (q) {
+    const pattern = likePattern(q);
+    conditions.push(
+      '(b.code LIKE ? OR cu.full_name LIKE ? OR p.display_name LIKE ? OR sv.title LIKE ?)',
+    );
+    params.push(pattern, pattern, pattern, pattern);
+  }
+  return paginate({
+    columns: `b.id, b.code, b.status, b.scheduled_date, b.start_time, b.service_mode,
+              b.location_area, b.pricing_type_snapshot, b.estimated_total, b.final_total,
+              b.cancelled_by, b.status_reason, b.created_at, b.updated_at,
+              sv.id AS service_id, sv.title AS service_title,
+              c.id AS category_id, c.name AS category_name,
+              p.id AS provider_id, p.display_name AS provider_name, p.city AS provider_city,
+              cu.id AS customer_id, cu.full_name AS customer_name`,
+    from: `FROM bookings b
+           JOIN services sv ON sv.id = b.service_id
+           JOIN categories c ON c.id = sv.category_id
+           JOIN provider_profiles p ON p.id = b.provider_id
+           JOIN users cu ON cu.id = b.customer_id
+           ${whereClause(conditions)}`,
+    params,
+    orderBy: 'b.scheduled_date DESC, b.start_time DESC, b.created_at DESC, b.id DESC',
+    page,
+    limit,
+  });
+}
+
+/**
+ * Jejak audit `admin_actions` (append-only, hanya baca) beserta nama admin pelakunya.
+ * Filter aksi, jenis target, id target, dan admin. Terbaru dulu.
+ */
+async function listAdminActions({ action, targetType, targetId, adminId, page, limit }) {
+  const conditions = [];
+  const params = [];
+  for (const [column, value] of [
+    ['a.action', action],
+    ['a.target_type', targetType],
+    ['a.target_id', targetId],
+    ['a.admin_id', adminId],
+  ]) {
+    if (value) {
+      conditions.push(`${column} = ?`);
+      params.push(value);
+    }
+  }
+  return paginate({
+    columns: `a.id, a.action, a.target_type, a.target_id, a.note, a.created_at,
+              a.admin_id, u.full_name AS admin_name`,
+    from: `FROM admin_actions a JOIN users u ON u.id = a.admin_id ${whereClause(conditions)}`,
+    params,
+    orderBy: 'a.created_at DESC, a.id DESC',
     page,
     limit,
   });
@@ -315,4 +394,6 @@ module.exports = {
   findReview,
   setReviewHidden,
   setUserStatus,
+  listBookings,
+  listAdminActions,
 };
