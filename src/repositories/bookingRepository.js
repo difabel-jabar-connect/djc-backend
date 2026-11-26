@@ -12,7 +12,9 @@ const COLUMNS = `b.id, b.code, b.status, b.customer_id, b.provider_id, b.service
   b.unit_price_snapshot, b.quantity, b.estimated_total, b.actual_quantity, b.final_total,
   b.cancelled_by, b.status_reason, b.created_at, b.updated_at,
   sv.title AS service_title,
+  c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
   p.user_id AS provider_user_id, p.display_name AS provider_display_name,
+  p.rating_avg AS provider_rating_avg, p.rating_count AS provider_rating_count,
   p.city AS provider_city, p.district AS provider_district,
   p.address_detail AS provider_address_detail, pu.phone AS provider_phone,
   cu.full_name AS customer_full_name, cu.phone AS customer_phone,
@@ -22,6 +24,7 @@ const COLUMNS = `b.id, b.code, b.status, b.customer_id, b.provider_id, b.service
 
 const FROM = `FROM bookings b
   JOIN services sv ON sv.id = b.service_id
+  JOIN categories c ON c.id = sv.category_id
   JOIN provider_profiles p ON p.id = b.provider_id
   JOIN users pu ON pu.id = p.user_id
   JOIN users cu ON cu.id = b.customer_id`;
@@ -162,6 +165,27 @@ async function findById(id) {
 }
 
 /**
+ * Cek bentrok sebelum booking dibuat, dalam rentang [startSec, endSec) di tanggal yang sama:
+ * - `customer`: customer ini sudah punya booking aktif (requested/accepted/in_progress)
+ *   ke provider yang sama di jam yang tumpang tindih (mis. klik pesan dua kali);
+ * - `provider`: jam itu sudah dipakai booking provider yang diterima atau sedang berjalan.
+ * Mengembalikan 'customer', 'provider', atau null.
+ */
+async function findCreateConflict({ customerId, providerId, date, startSec, endSec }) {
+  const [rows] = await db.getPool().query(
+    `SELECT customer_id, status FROM bookings
+     WHERE provider_id = ? AND scheduled_date = ?
+       AND status IN ('requested', 'accepted', 'in_progress')
+       AND TIME_TO_SEC(start_time) < ?
+       AND TIME_TO_SEC(start_time) + quantity * 3600 > ?`,
+    [providerId, date, endSec, startSec],
+  );
+  if (rows.some((row) => row.customer_id === customerId)) return 'customer';
+  if (rows.some((row) => row.status !== 'requested')) return 'provider';
+  return null;
+}
+
+/**
  * Daftar booking milik customer (`customerId`) atau provider (`providerId`), urut jadwal
  * terbaru. Mengembalikan { items, total }.
  */
@@ -286,4 +310,5 @@ module.exports = {
   list,
   transition,
   cancelExpiredRequested,
+  findCreateConflict,
 };

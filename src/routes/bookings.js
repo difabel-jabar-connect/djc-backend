@@ -5,6 +5,8 @@ const { ApiError, sendSuccess } = require('../utils/response');
 const { validate } = require('../utils/validate');
 
 const STATUSES = ['requested', 'accepted', 'in_progress', 'completed', 'rejected', 'cancelled'];
+// Batas pemesanan ke depan, supaya jadwal tidak dipesan bertahun-tahun sebelumnya.
+const MAX_DAYS_AHEAD = 90;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -82,10 +84,18 @@ function toBooking(row, viewer) {
     id: row.id,
     code: row.code,
     status: row.status,
-    service: { id: row.service_id, title: row.service_title },
+    service: {
+      id: row.service_id,
+      title: row.service_title,
+      category: row.category_id
+        ? { id: row.category_id, name: row.category_name, slug: row.category_slug }
+        : null,
+    },
     provider: {
       id: row.provider_id,
       display_name: row.provider_display_name,
+      rating_avg: toNumber(row.provider_rating_avg) ?? 0,
+      rating_count: toNumber(row.provider_rating_count) ?? 0,
       city: row.provider_city,
       district: row.provider_district,
       phone: access.providerPhone ? (row.provider_phone ?? null) : null,
@@ -267,6 +277,14 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
     if (body.scheduled_date === today && body.start_time < timeInJakarta(current)) {
       throw fieldError('start_time', 'Jam yang dipilih sudah lewat.');
     }
+    const lastDay = new Date(`${today}T00:00:00Z`);
+    lastDay.setUTCDate(lastDay.getUTCDate() + MAX_DAYS_AHEAD);
+    if (body.scheduled_date > lastDay.toISOString().slice(0, 10)) {
+      throw fieldError(
+        'scheduled_date',
+        `Tanggal pesanan maksimal ${MAX_DAYS_AHEAD} hari dari hari ini.`,
+      );
+    }
     if (service.service_mode !== 'both' && service.service_mode !== body.service_mode) {
       throw fieldError('service_mode', 'Mode layanan ini tidak tersedia untuk penyedia jasa ini.');
     }
@@ -297,6 +315,28 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
       throw fieldError(
         'start_time',
         `Durasi pesanan melewati jam operasional penyedia (tutup pukul ${slot.end_time}).`,
+      );
+    }
+
+    const conflict = await bookings.findCreateConflict({
+      customerId: req.auth.userId,
+      providerId: service.provider_id,
+      date: body.scheduled_date,
+      startSec: start * 60,
+      endSec: (start + quantity * 60) * 60,
+    });
+    if (conflict === 'customer') {
+      throw new ApiError(
+        409,
+        'CONFLICT',
+        'Anda sudah punya pesanan aktif ke penyedia ini di jam yang sama.',
+      );
+    }
+    if (conflict === 'provider') {
+      throw new ApiError(
+        409,
+        'CONFLICT',
+        'Jam ini sudah terisi pesanan lain. Silakan pilih jam lain.',
       );
     }
 

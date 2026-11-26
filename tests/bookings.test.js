@@ -90,6 +90,23 @@ function fakeBookings() {
     async findProviderProfileId(userId) {
       return [...owners].find(([, user]) => user === userId)?.[0] ?? null;
     },
+    async findCreateConflict({ customerId, providerId, date, startSec, endSec }) {
+      // Sama dengan repository asli: booking aktif yang jamnya tumpang tindih.
+      const overlapping = [...rows.values()].filter((row) => {
+        const start =
+          Number(row.start_time.slice(0, 2)) * 3600 + Number(row.start_time.slice(3, 5)) * 60;
+        return (
+          row.provider_id === providerId &&
+          row.scheduled_date === date &&
+          ['requested', 'accepted', 'in_progress'].includes(row.status) &&
+          start < endSec &&
+          start + Number(row.quantity) * 3600 > startSec
+        );
+      });
+      if (overlapping.some((row) => row.customer_id === customerId)) return 'customer';
+      if (overlapping.some((row) => row.status !== 'requested')) return 'provider';
+      return null;
+    },
     async create(booking, { changedBy }) {
       const row = {
         id: randomUUID(),
@@ -409,7 +426,7 @@ test('accept ditolak 409 jika jadwalnya tumpang tindih dengan pesanan yang sudah
     location_area: 'Bekasi Timur',
     location_address: 'Jl. Melati No. 10',
   };
-  const overlapping = await createBooking(app, { ...hourly, start_time: '13:30' });
+  const overlapping = await createBooking(app, { ...hourly, start_time: '13:30' }, otherCustomer);
   const adjacent = await createBooking(app, { ...hourly, start_time: '14:00' });
 
   assert.equal((await act(app, providerUser, first.id, 'accept')).status, 200);
@@ -423,6 +440,71 @@ test('accept ditolak 409 jika jadwalnya tumpang tindih dengan pesanan yang sudah
   // Setelah pesanan pertama dibatalkan, jadwal itu kosong lagi.
   await act(app, customer, first.id, 'cancel');
   assert.equal((await act(app, providerUser, second.id, 'accept')).status, 200);
+});
+
+test('B1 menolak pesanan dobel dari customer yang sama dan jam yang sudah diterima', async () => {
+  const { app } = setup();
+  const post = (body, user = customer) =>
+    request(app).post('/api/v1/bookings').set('Authorization', bearer(user)).send(body);
+
+  const first = await createBooking(app);
+  const dobel = await post(fixedBody);
+  assert.equal(dobel.status, 409);
+  assert.equal(dobel.body.error.code, 'CONFLICT');
+  assert.match(dobel.body.error.message, /sudah punya pesanan aktif/);
+
+  // Customer lain masih boleh mengajukan jam yang sama selama belum ada yang diterima.
+  const second = await createBooking(app, fixedBody, otherCustomer);
+  assert.equal((await act(app, providerUser, second.id, 'accept')).status, 200);
+
+  // Setelah jam itu diterima penyedia, pesanan baru yang menabraknya ditolak.
+  await act(app, customer, first.id, 'cancel');
+  const taken = await post({ ...fixedBody, start_time: '11:30' });
+  assert.equal(taken.status, 409);
+  assert.match(taken.body.error.message, /sudah terisi/);
+
+  // Jam yang tidak bertabrakan tetap boleh.
+  assert.equal((await post({ ...fixedBody, start_time: '12:00' })).status, 201);
+});
+
+test('B1 tanggal pesanan maksimal 90 hari ke depan', async () => {
+  const { app } = setup();
+  const post = (date) =>
+    request(app)
+      .post('/api/v1/bookings')
+      .set('Authorization', bearer(customer))
+      .send({ ...fixedBody, scheduled_date: date });
+
+  // NOW = Senin 2 Nov 2026; batasnya 31 Jan 2027 (Minggu, provider tutup).
+  assert.equal((await post('2027-01-30')).status, 201);
+  const far = await post('2027-02-01');
+  assert.equal(far.status, 400);
+  assert.equal(far.body.error.details[0].field, 'scheduled_date');
+  assert.equal((await post('2099-12-31')).status, 400);
+});
+
+test('B3 detail pesanan membawa kategori layanan dan rating penyedia', async () => {
+  const { app, bookings } = setup();
+  const booking = await createBooking(app);
+  Object.assign(bookings.rows.get(booking.id), {
+    category_id: '7a0e6a8e-1f7e-4b55-9a4d-2f6a1d3e4c5b',
+    category_name: 'Servis Elektronik',
+    category_slug: 'servis-elektronik',
+    provider_rating_avg: '4.5',
+    provider_rating_count: 2,
+  });
+
+  const res = await request(app)
+    .get(`/api/v1/bookings/${booking.id}`)
+    .set('Authorization', bearer(customer));
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.data.service.category, {
+    id: '7a0e6a8e-1f7e-4b55-9a4d-2f6a1d3e4c5b',
+    name: 'Servis Elektronik',
+    slug: 'servis-elektronik',
+  });
+  assert.equal(res.body.data.provider.rating_avg, 4.5);
+  assert.equal(res.body.data.provider.rating_count, 2);
 });
 
 test('reject wajib alasan minimal 10 karakter dan tersimpan sebagai status_reason', async () => {
