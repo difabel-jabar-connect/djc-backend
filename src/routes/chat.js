@@ -3,7 +3,12 @@ const { z } = require('zod');
 const { requireAuth } = require('../middlewares/auth');
 const { ApiError, sendSuccess } = require('../utils/response');
 const { validate } = require('../utils/validate');
-const { createChatService, toMessage, OPEN_STATUSES } = require('../services/chat');
+const {
+  createChatService,
+  toMessage,
+  visibleDisability,
+  OPEN_STATUSES,
+} = require('../services/chat');
 const { shortName } = require('./bookings');
 
 // Chat per booking (BE-10, issue #32). Socket.io memakai service yang sama
@@ -41,7 +46,7 @@ function toInboxItem(row, viewer) {
           name: row.provider_display_name,
           photo_url: row.provider_photo_url ?? null,
           photo_alt: row.provider_photo_alt ?? null,
-          disability_type: row.provider_disability_type ?? null,
+          disability_type: visibleDisability(row.provider_disability_type, row.status, viewer),
         }
       : {
           role: 'customer',

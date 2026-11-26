@@ -169,6 +169,16 @@ test('riwayat pesan: otorisasi partisipan dan data aksesibilitas', async () => {
     assert.deepEqual(res.body.data.messages, []);
     assert.equal(res.body.data.booking.can_send, user.role !== 'admin');
   }
+
+  // R-12: sebelum pesanan diterima, pelanggan belum melihat jenis disabilitas mitra.
+  const pending = chat.addBooking('requested');
+  const pendingUrl = `/api/v1/bookings/${pending.id}/messages`;
+  const asCustomer = await request(app).get(pendingUrl).set('Authorization', bearer(customer));
+  assert.equal(asCustomer.body.data.provider_disability_type, null);
+  for (const user of [providerUser, admin]) {
+    const res = await request(app).get(pendingUrl).set('Authorization', bearer(user));
+    assert.equal(res.body.data.provider_disability_type, 'tunarungu', user.role);
+  }
 });
 
 test('kirim pesan: validasi, sanitasi, read-only, admin, dan akun suspended', async () => {

@@ -11,6 +11,15 @@ const { ApiError } = require('../utils/response');
 //   Selesai, ditolak, atau dibatalkan → read-only (400).
 
 const OPEN_STATUSES = ['requested', 'accepted', 'in_progress'];
+// Jenis disabilitas mitra termasuk data pribadi spesifik (UU PDP). Pelanggan baru melihatnya
+// setelah pesanan diterima (QA-02 R-12); mitra sendiri dan admin selalu melihatnya.
+const DISABILITY_VISIBLE_STATUSES = ['accepted', 'in_progress', 'completed'];
+
+/** Jenis disabilitas mitra yang boleh dikirim ke `viewer` untuk booking berstatus `status`. */
+function visibleDisability(disabilityType, status, viewer) {
+  if (viewer === 'customer' && !DISABILITY_VISIBLE_STATUSES.includes(status)) return null;
+  return disabilityType ?? null;
+}
 const MAX_LENGTH = 1000;
 
 const idSchema = z.uuid();
@@ -129,7 +138,11 @@ function createChatService({ chat, users, hub, now = () => new Date() }) {
         can_send: canSend(booking, viewer),
       },
       // Data aksesibilitas mitra, mis. "tunarungu" → pelanggan disarankan chat teks.
-      provider_disability_type: booking.provider_disability_type ?? null,
+      provider_disability_type: visibleDisability(
+        booking.provider_disability_type,
+        booking.status,
+        viewer,
+      ),
       messages: items.map(toMessage),
       hasMore,
     };
@@ -187,6 +200,7 @@ module.exports = {
   createChatHub,
   sanitizeText,
   toMessage,
+  visibleDisability,
   room,
   userRoom,
   OPEN_STATUSES,

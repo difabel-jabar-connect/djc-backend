@@ -101,7 +101,9 @@ test(
     const done = booking('completed');
     const open1 = booking('requested');
     const open2 = booking('accepted');
-    await knex('bookings').insert([done, open1, open2]);
+    // R-14: pesanan yang sedang dikerjakan ikut dibatalkan, supaya tidak tertahan.
+    const open3 = booking('in_progress');
+    await knex('bookings').insert([done, open1, open2, open3]);
     await knex('reviews').insert({
       id: ids.review,
       booking_id: done.id,
@@ -150,7 +152,7 @@ test(
     assert.ok(inRange.body.data.some((b) => b.id === done.id));
     assert.equal(
       (await call('get', '/bookings?date_from=2026-11-10&q=DJC-A')).body.data.filter((b) =>
-        [done.id, open1.id, open2.id].includes(b.id),
+        [done.id, open1.id, open2.id, open3.id].includes(b.id),
       ).length,
       0,
     );
@@ -228,8 +230,8 @@ test(
       reason: 'Melanggar ketentuan layanan.',
     });
     assert.equal(suspended.status, 200);
-    assert.equal(suspended.body.data.cancelled_bookings, 2);
-    for (const id of [open1.id, open2.id]) {
+    assert.equal(suspended.body.data.cancelled_bookings, 3);
+    for (const id of [open1.id, open2.id, open3.id]) {
       const row = await knex('bookings').where({ id }).first();
       assert.equal(row.status, 'cancelled');
       assert.equal(row.cancelled_by, 'admin');

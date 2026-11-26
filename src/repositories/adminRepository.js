@@ -352,7 +352,8 @@ async function setUserStatus({ adminId, user, status, reason }) {
       const [rows] = await connection.query(
         `SELECT b.id, b.status FROM bookings b
          LEFT JOIN provider_profiles p ON p.id = b.provider_id
-         WHERE b.status IN ('requested', 'accepted') AND (b.customer_id = ? OR p.user_id = ?)
+         WHERE b.status IN ('requested', 'accepted', 'in_progress')
+           AND (b.customer_id = ? OR p.user_id = ?)
          FOR UPDATE`,
         [user.id, user.id],
       );

@@ -1121,7 +1121,7 @@ Body S4 `complete` menurut tipe harga:
 
 Pembatalan oleh sistem tidak punya endpoint publik. Ada dua pemicu:
 
-- Aksi admin `suspend_user`: booking `requested`/`accepted` milik akun tersebut dibatalkan.
+- Aksi admin `suspend_user`: booking `requested`/`accepted`/`in_progress` milik akun tersebut dibatalkan (QA-02 R-14: booking yang sedang dikerjakan tidak dibiarkan tertahan).
 - **Batas waktu respons (usulan dari review PM di deonaja/difabel-jabar-connect#11):** booking `requested` yang tidak direspons provider dalam 24 jam otomatis menjadi `cancelled` dengan `cancelled_by = system` dan `status_reason` terisi. Ini mengubah keputusan #3 di `data-model.md` (sebelumnya: tetap `requested` tanpa batas waktu), sehingga data model perlu diperbarui setelah deonaja/difabel-jabar-connect#11 diterima. Mekanisme pemicunya (job terjadwal atau pengecekan saat booking dibaca) ditentukan saat implementasi booking.
 - **Implementasi (BE-08):** server menjalankan pengecekan berkala (`AUTO_CANCEL_INTERVAL_MINUTES`, default 5 menit, `0` = mati; juga sekali saat server menyala). Booking `requested` yang `created_at`-nya ≥ 24 jam lalu menjadi `cancelled`, `cancelled_by = system`, `status_reason` = "Batas waktu konfirmasi 24 jam terlampaui (dibatalkan otomatis oleh sistem)", dan satu baris riwayat dengan `changed_by` NULL (`changed_by_role: "system"` di B3), semuanya dalam satu transaksi dengan baris dikunci `FOR UPDATE`.
 
@@ -1211,7 +1211,7 @@ Semua endpoint di bagian ini khusus admin (`requireAuth` + `requireRole('admin')
 
 **AD4** request: `{ "is_hidden": true, "reason": "…" }` (alasan wajib minimal 10 karakter saat menyembunyikan) atau `{ "is_hidden": false }`. `rating_avg`/`rating_count` provider dihitung ulang tanpa ulasan tersembunyi, dalam transaksi yang sama. Baris provider dikunci (`FOR UPDATE`) di awal transaksi, sama seperti R1, supaya tidak deadlock dengan ulasan baru untuk provider yang sama. Status yang sama dengan sekarang → `409 CONFLICT`.
 
-**AD5** request: `{ "reason": "…" }` (wajib minimal 10 karakter). Booking `requested`/`accepted` milik akun itu (sebagai customer maupun provider) dibatalkan dengan `cancelled_by = admin`, `status_reason`, dan riwayat status. Sukses `200`: `{ "user": { …, "status": "suspended" }, "cancelled_bookings": 2 }`. Admin tidak bisa menangguhkan akunnya sendiri atau admin lain (`403`); akun yang sudah ditangguhkan → `409`.
+**AD5** request: `{ "reason": "…" }` (wajib minimal 10 karakter). Booking `requested`/`accepted`/`in_progress` milik akun itu (sebagai customer maupun provider) dibatalkan dengan `cancelled_by = admin` (pembatalan dipicu aksi admin, jadi dicatat sebagai admin, bukan `system`; RBAC-09), `status_reason`, dan riwayat status. Sukses `200`: `{ "user": { …, "status": "suspended" }, "cancelled_bookings": 2 }`. Admin tidak bisa menangguhkan akunnya sendiri atau admin lain (`403`); akun yang sudah ditangguhkan → `409`.
 
 **AD6** body opsional `{ "reason": "…" }`; mengaktifkan kembali akun (booking yang sudah dibatalkan tidak dipulihkan).
 
@@ -1244,6 +1244,7 @@ Aturan:
 - Admin hanya membaca. CH2/CH3 oleh admin `403`. Akun `suspended` boleh membaca, tapi CH2/CH3 ditolak `403 ACCOUNT_SUSPENDED`.
 - CH2 hanya saat status `requested`, `accepted`, atau `in_progress` (di issue tertulis `pending`/`confirmed`). Status lain `400 CHAT_READ_ONLY`.
 - `message_text` 1–1000 karakter setelah dibersihkan: tag HTML/`<script>` dan karakter kontrol dibuang, lalu di-trim.
+- `provider_disability_type` (CH1) dan `counterpart.disability_type` (inbox) untuk customer hanya terisi setelah booking diterima (`accepted`, `in_progress`, `completed`); sebelumnya `null` (QA-02 R-12, data pribadi spesifik UU PDP). Provider dan admin selalu menerimanya.
 
 CH1 query: `limit` (1–100, default 50), `before_id` (id pesan, ambil pesan yang lebih lama). Respons:
 
