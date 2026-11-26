@@ -381,6 +381,7 @@ function createAdminRouter({ admin, users }) {
           email: body.email,
           phone: body.phone,
           status: 'active',
+          must_change_password: true,
         },
         provider_profile: { id: created.profileId, verification_status: 'pending' },
       },

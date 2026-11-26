@@ -69,9 +69,15 @@ function fakeProviders() {
 /** Cloudinary palsu yang mencatat setiap upload. `fail` mensimulasikan error dari Cloudinary. */
 function fakeCloudinary({ configured = true, fail = false } = {}) {
   const uploads = [];
+  const destroyed = [];
   return {
     uploads,
+    destroyed,
     configured,
+    async destroyImage(url) {
+      destroyed.push(url);
+      return true;
+    },
     async uploadImage({ dataUri, folder }) {
       uploads.push({ dataUri, folder });
       if (fail) throw new Error('upload Cloudinary gagal (401 Invalid Signature)');
@@ -291,5 +297,79 @@ test('Cloudinary: respons error menjadi exception tanpa membocorkan secret', asy
   assert.equal(
     createCloudinary({ config: { cloudName: 'demo', apiKey: '', apiSecret: '' } }).configured,
     false,
+  );
+});
+
+test('R-07: foto lama dan gambar portofolio yang dihapus ikut dihapus dari Cloudinary', async () => {
+  const { app, cloudinary } = setup();
+  const auth = bearer(provider);
+  const upload = () =>
+    request(app)
+      .put('/api/v1/provider/photo')
+      .set('Authorization', auth)
+      .send({ image: PNG, image_alt: 'Foto Deni tersenyum di bengkel' });
+
+  const first = await upload();
+  assert.deepEqual(cloudinary.destroyed, [], 'belum ada foto lama');
+  await upload();
+  assert.deepEqual(cloudinary.destroyed, [first.body.data.photo_url]);
+
+  const item = await request(app)
+    .post('/api/v1/provider/portfolio')
+    .set('Authorization', auth)
+    .send({
+      image: PNG,
+      image_alt: 'Kipas yang sudah diperbaiki',
+      title: 'Kipas',
+      item_type: 'work_result',
+    });
+  await request(app)
+    .delete(`/api/v1/provider/portfolio/${item.body.data.id}`)
+    .set('Authorization', auth);
+  assert.equal(cloudinary.destroyed.at(-1), item.body.data.image_url);
+});
+
+test('Cloudinary: destroyImage memakai public_id dari URL dan mengabaikan URL lain', async () => {
+  const calls = [];
+  const cloudinary = createCloudinary({
+    config: { cloudName: 'demo', apiKey: 'key123', apiSecret: 'rahasia' },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, body: Object.fromEntries(options.body) });
+      return { ok: true, status: 200, json: async () => ({ result: 'ok' }) };
+    },
+  });
+
+  assert.equal(
+    cloudinary.publicIdFromUrl(
+      'https://res.cloudinary.com/demo/image/upload/v1712/djc/providers/p1/abc.webp',
+    ),
+    'djc/providers/p1/abc',
+  );
+  assert.equal(
+    cloudinary.publicIdFromUrl('https://res.cloudinary.com/lain/image/upload/v1/djc/a.webp'),
+    null,
+  );
+  assert.equal(cloudinary.publicIdFromUrl('https://images.unsplash.com/photo.jpg'), null);
+  assert.equal(
+    cloudinary.publicIdFromUrl('https://res.cloudinary.com/demo/image/upload/v1/sample.jpg'),
+    null,
+  );
+
+  assert.equal(await cloudinary.destroyImage('https://images.unsplash.com/photo.jpg'), false);
+  assert.equal(calls.length, 0, 'URL luar tidak dikirim ke Cloudinary');
+
+  assert.equal(
+    await cloudinary.destroyImage(
+      'https://res.cloudinary.com/demo/image/upload/v9/djc/users/u1/x.webp',
+    ),
+    true,
+  );
+  const { url, body } = calls[0];
+  assert.equal(url, 'https://api.cloudinary.com/v1_1/demo/image/destroy');
+  assert.equal(body.public_id, 'djc/users/u1/x');
+  assert.equal(body.api_secret, undefined);
+  assert.equal(
+    body.signature,
+    sign({ public_id: body.public_id, timestamp: body.timestamp }, 'rahasia'),
   );
 });

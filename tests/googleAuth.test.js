@@ -281,6 +281,7 @@ test('POST /auth/google login: akun terdaftar dapat cookie sesi, code ditukar de
     email: 'budi@gmail.com',
     avatar_url: null,
     has_password: true,
+    must_change_password: false,
     email_verified: true,
     status: 'active',
   });

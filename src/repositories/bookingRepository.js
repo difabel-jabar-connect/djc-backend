@@ -270,35 +270,48 @@ async function transition(id, { to, changedBy, decide }) {
 /**
  * Membatalkan semua booking `requested` yang dibuat pada atau sebelum `createdBefore`
  * (DEC-TIMEOUT): status `cancelled`, `cancelled_by = system`, alasan diisi, dan satu baris
- * riwayat (changed_by NULL = sistem) per booking, semuanya dalam satu transaksi.
- * Baris dikunci FOR UPDATE supaya tidak bentrok dengan provider yang menerima pesanan
- * pada saat yang sama. Mengembalikan id booking yang dibatalkan.
+ * riwayat (changed_by NULL = sistem) per booking. Kandidat dibaca tanpa kunci, lalu tiap
+ * booking dibatalkan di transaksinya sendiri dengan kunci PK + SKIP LOCKED (QA-02 R-13):
+ * booking yang sedang diterima provider dilewati dan dicek lagi di putaran berikutnya, dan
+ * satu kegagalan tidak membatalkan booking lain. Mengembalikan id booking yang dibatalkan.
  */
 async function cancelExpiredRequested({ createdBefore, reason }) {
-  return inTransaction(async (connection) => {
-    const [rows] = await connection.query(
-      `SELECT id FROM bookings WHERE status = 'requested' AND created_at <= ? FOR UPDATE`,
+  const [candidates] = await db
+    .getPool()
+    .query(
+      `SELECT id FROM bookings WHERE status = 'requested' AND created_at <= ? ORDER BY created_at`,
       [createdBefore],
     );
-    const ids = rows.map((row) => row.id);
-    if (!ids.length) return ids;
-
-    await connection.query(
-      `UPDATE bookings SET status = 'cancelled', cancelled_by = 'system', status_reason = ?
-       WHERE id IN (?)`,
-      [reason, ids],
-    );
-    for (const id of ids) {
-      await insertHistory(connection, {
-        bookingId: id,
-        from: 'requested',
-        to: 'cancelled',
-        changedBy: null,
-        reason,
+  const ids = [];
+  for (const { id } of candidates) {
+    try {
+      const cancelled = await inTransaction(async (connection) => {
+        const [rows] = await connection.query(
+          `SELECT id FROM bookings WHERE id = ? AND status = 'requested'
+           FOR UPDATE SKIP LOCKED`,
+          [id],
+        );
+        if (!rows.length) return false;
+        await connection.query(
+          `UPDATE bookings SET status = 'cancelled', cancelled_by = 'system', status_reason = ?
+           WHERE id = ?`,
+          [reason, id],
+        );
+        await insertHistory(connection, {
+          bookingId: id,
+          from: 'requested',
+          to: 'cancelled',
+          changedBy: null,
+          reason,
+        });
+        return true;
       });
+      if (cancelled) ids.push(id);
+    } catch (error) {
+      if (error.code !== 'ER_LOCK_DEADLOCK' && error.code !== 'ER_LOCK_WAIT_TIMEOUT') throw error;
     }
-    return ids;
-  });
+  }
+  return ids;
 }
 
 module.exports = {

@@ -258,8 +258,8 @@ async function createProvider({
   const profileId = randomUUID();
   await inTransaction(async (connection) => {
     await connection.query(
-      `INSERT INTO users (id, role, full_name, email, phone, password_hash)
-       VALUES (?, 'provider', ?, ?, ?, ?)`,
+      `INSERT INTO users (id, role, full_name, email, phone, password_hash, must_change_password)
+       VALUES (?, 'provider', ?, ?, ?, ?, TRUE)`,
       [userId, fullName, email, phone, passwordHash],
     );
     await connection.query(

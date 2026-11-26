@@ -183,6 +183,21 @@ test(
       'pending',
     );
 
+    // R-10: kata sandi awal dari admin wajib diganti; penanda hilang setelah diganti.
+    const login = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: createdEmail, password: 'Rahasia123' });
+    assert.equal(login.body.data.user.must_change_password, true);
+    const changed = await request(app)
+      .put('/api/v1/me/password')
+      .set('Authorization', `Bearer ${login.body.data.token}`)
+      .send({ current_password: 'Rahasia123', new_password: 'SandiSendiri123' });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    assert.equal(
+      Boolean((await knex('users').where({ email: createdEmail }).first()).must_change_password),
+      false,
+    );
+
     // Mitra baru belum punya lokasi: tidak bisa diverifikasi (CHECK database).
     assert.equal(
       (await call('put', `/providers/${newProfile}/verify`, { status: 'verified' })).status,

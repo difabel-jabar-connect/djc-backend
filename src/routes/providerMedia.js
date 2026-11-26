@@ -4,7 +4,7 @@ const env = require('../config/env');
 const { requireAuth, requireRole, requireActiveUser } = require('../middlewares/auth');
 const { ApiError, sendSuccess } = require('../utils/response');
 const { validate } = require('../utils/validate');
-const { image, uploadJson, MAX_IMAGE_BYTES } = require('./imageUpload');
+const { image, uploadJson, discardImage, MAX_IMAGE_BYTES } = require('./imageUpload');
 
 // Teks alternatif wajib untuk setiap gambar (NFR-ACC-03); kosong atau hanya spasi ditolak.
 const imageAlt = z
@@ -70,6 +70,7 @@ function createProviderMediaRouter({ providers, users, cloudinary }) {
     const profile = await ownProfile(req);
     const uploaded = await upload(body.image, `djc/providers/${profile.id}`);
     await providers.updatePhoto(profile.id, { url: uploaded.url, alt: body.image_alt });
+    if (profile.photo_url !== uploaded.url) await discardImage(cloudinary, profile.photo_url);
     return sendSuccess(res, { photo_url: uploaded.url, photo_alt: body.image_alt });
   });
 
@@ -94,10 +95,13 @@ function createProviderMediaRouter({ providers, users, cloudinary }) {
 
   router.delete('/portfolio/:id', async (req, res) => {
     const profile = await ownProfile(req);
-    const deleted =
-      idSchema.safeParse(req.params.id).success &&
-      (await providers.deletePortfolioItem(profile.id, req.params.id));
+    const validId = idSchema.safeParse(req.params.id).success;
+    const item = validId
+      ? (await providers.listPortfolio(profile.id)).find((row) => row.id === req.params.id)
+      : null;
+    const deleted = Boolean(item) && (await providers.deletePortfolioItem(profile.id, item.id));
     if (!deleted) throw new ApiError(404, 'NOT_FOUND', 'Karya portofolio tidak ditemukan.');
+    await discardImage(cloudinary, item.image_url);
     return sendSuccess(res, { deleted: true });
   });
 

@@ -86,4 +86,17 @@ const image = z.string('Gambar wajib diunggah.').superRefine((value, ctx) => {
 /** Parser JSON khusus upload: batas lebih besar karena gambar 5 MB menjadi ~6,7 MB base64. */
 const uploadJson = express.json({ limit: '8mb' });
 
-module.exports = { image, uploadJson, MAX_IMAGE_BYTES };
+/**
+ * Menghapus gambar lama di Cloudinary setelah datanya diganti atau dihapus (QA-02 R-07).
+ * Best effort: kegagalan hanya dicatat, permintaan pengguna tetap berhasil.
+ */
+async function discardImage(cloudinary, url) {
+  if (!url || typeof cloudinary?.destroyImage !== 'function') return;
+  try {
+    await cloudinary.destroyImage(url);
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'test') console.warn(`[cloudinary] ${error.message}`);
+  }
+}
+
+module.exports = { image, uploadJson, discardImage, MAX_IMAGE_BYTES };

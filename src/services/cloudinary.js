@@ -67,7 +67,47 @@ function createCloudinary({
     };
   }
 
-  return { configured, uploadImage };
+  /**
+   * public_id dari URL gambar milik cloud ini, mis.
+   * https://res.cloudinary.com/<cloud>/image/upload/v1712/djc/providers/abc/x1y2.webp →
+   * djc/providers/abc/x1y2. URL dari tempat lain (data seed, Google) → null.
+   */
+  function publicIdFromUrl(url) {
+    if (typeof url !== 'string' || !config.cloudName) return null;
+    const prefix = `https://res.cloudinary.com/${config.cloudName}/image/upload/`;
+    if (!url.startsWith(prefix)) return null;
+    const path = url.slice(prefix.length).replace(/^v\d+\//, '');
+    const publicId = decodeURIComponent(path.replace(/\.[a-z0-9]+$/i, ''));
+    return publicId.startsWith('djc/') ? publicId : null;
+  }
+
+  /**
+   * Menghapus gambar lama (QA-02 R-07). Mengembalikan true jika Cloudinary menghapusnya,
+   * false jika URL bukan milik aplikasi ini; melempar error jika permintaan gagal.
+   */
+  async function destroyImage(url) {
+    const publicId = publicIdFromUrl(url);
+    if (!configured || !publicId) return false;
+    const params = { public_id: publicId, timestamp: Math.floor(Date.now() / 1000) };
+    const body = new URLSearchParams({
+      ...params,
+      api_key: config.apiKey,
+      signature: sign(params, config.apiSecret),
+    });
+    const res = await fetchImpl(
+      `https://api.cloudinary.com/v1_1/${encodeURIComponent(config.cloudName)}/image/destroy`,
+      { method: 'POST', body },
+    );
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok || !['ok', 'not found'].includes(result.result)) {
+      throw new Error(
+        `hapus Cloudinary gagal (${res.status} ${result.error?.message ?? ''})`.trim(),
+      );
+    }
+    return result.result === 'ok';
+  }
+
+  return { configured, uploadImage, destroyImage, publicIdFromUrl };
 }
 
 module.exports = { createCloudinary, sign };

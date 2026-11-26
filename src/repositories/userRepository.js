@@ -2,7 +2,7 @@ const { randomUUID } = require('node:crypto');
 const db = require('../config/db');
 
 const USER_COLUMNS =
-  'id, role, full_name, email, phone, avatar_url, password_hash, has_password, status, email_verified_at';
+  'id, role, full_name, email, phone, avatar_url, password_hash, has_password, must_change_password, status, email_verified_at';
 
 async function findByEmail(email) {
   const [rows] = await db
@@ -68,7 +68,7 @@ async function updatePassword(id, passwordHash, { verifyEmail = true } = {}) {
   await db
     .getPool()
     .query(
-      `UPDATE users SET password_hash = ?, has_password = TRUE${
+      `UPDATE users SET password_hash = ?, has_password = TRUE, must_change_password = FALSE${
         verifyEmail ? ', email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP(6))' : ''
       } WHERE id = ?`,
       [passwordHash, id],

@@ -149,7 +149,8 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 | P9  | POST   | `/provider/services`     | Provider             | Katalog provider | Sudah ada           |
 | P9  | GET    | /provider/services/:id   | Provider             | Katalog provider | Sudah ada           |
 | P9  | PUT    | /provider/services/:id   | Provider             | Katalog provider | Sudah ada           |
-| P4  | GET    | `/providers/:id/reviews` | Publik               | Provider, Review | Proposed            |
+| P4  | GET    | `/providers/:id/reviews` | Publik               | Provider, Review | Sudah ada           |
+| P10 | GET    | `/provider/reviews`      | Provider             | Dasbor provider  | Sudah ada           |
 | L1  | GET    | `/services`              | Publik               | Search           | Sudah ada           |
 | L2  | GET    | `/services/:id`          | Publik               | Search, Booking  | Sudah ada           |
 | B1  | POST   | `/bookings`              | Customer             | Booking          | Sudah ada           |
@@ -285,9 +286,7 @@ Error: `400 VALIDATION_ERROR`, `401 INVALID_CREDENTIALS` ("Email atau kata sandi
 
 ### A3 `POST /auth/logout`
 
-Peran: Login, termasuk akun `suspended`. Menghapus cookie sesi. Sukses `200`: `{ "data": { "logged_out": true } }`. Error: `401 UNAUTHENTICATED`.
-
-JWT tidak disimpan di server, jadi token yang sudah disalin klien Bearer tetap berlaku sampai `expires_at`. Daftar blokir token belum dibuat; suspend tetap berlaku lewat pengecekan status di setiap aksi tulis (1.4).
+Peran: siapa saja, termasuk akun `suspended` dan klien yang tokennya sudah kedaluwarsa (QA-02 R-05). Selalu menghapus cookie sesi dan menjawab `200`: `{ "data": { "logged_out": true } }`. Jika token yang dikirim masih valid, `jti`-nya dicabut sehingga token itu ditolak `401` di request berikutnya, termasuk di Socket.io.
 
 ### A4 `GET /auth/me`
 
@@ -310,6 +309,7 @@ Sukses `200`:
       "phone": "+62…",
       "avatar_url": null,
       "has_password": true,
+      "must_change_password": false,
       "email_verified": true,
       "status": "active"
     },
@@ -318,7 +318,7 @@ Sukses `200`:
 }
 ```
 
-`avatar_url` foto profil dari Akun Saya (M3) atau `null`. `has_password` `false` untuk akun yang dibuat lewat Google dan belum membuat kata sandi sendiri (lewat Lupa Kata Sandi); layar Keamanan memakainya untuk menyembunyikan form ganti kata sandi. `email_verified` dari kolom `email_verified_at`. Ketiga field ini juga ada di respons A1, A2, A8, M1, dan M3.
+`avatar_url` foto profil dari Akun Saya (M3) atau `null`. `has_password` `false` untuk akun yang dibuat lewat Google dan belum membuat kata sandi sendiri (lewat Lupa Kata Sandi); layar Keamanan memakainya untuk menyembunyikan form ganti kata sandi. `email_verified` dari kolom `email_verified_at`. `must_change_password` `true` untuk akun mitra baru yang kata sandinya dibuat admin (AD2, QA-02 R-10); frontend sebaiknya langsung membuka form ganti kata sandi (M2), dan penanda hilang setelah kata sandi diganti atau di-reset. Field-field ini juga ada di respons A1, A2, A8, M1, dan M3.
 
 `provider_profile` hanya ada untuk provider (`null` jika profilnya belum ada). Error: `401 UNAUTHENTICATED`, juga jika akun pemilik token sudah dihapus (cookie ikut dihapus).
 
@@ -914,7 +914,7 @@ Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCO
 | Requirement | FR-CUST-05, FR-PROV-11        |
 | Layar       | `/provider/:id` bagian ulasan |
 
-Query: `page`, `per_page`. Hanya review `is_hidden = false`; nama reviewer berupa nama depan + inisial.
+Query: `page` (default 1), `limit` (default 10, maks 50), sama dengan L1 dan B2. Hanya review `is_hidden = false`; nama reviewer berupa nama depan + inisial. Urutan: terbaru dulu. Provider yang belum `verified` atau akunnya `suspended` → `404`.
 
 Sukses `200`:
 
@@ -926,14 +926,19 @@ Sukses `200`:
       "rating": 5,
       "comment": "Cepat, rapi, penjelasannya jelas.",
       "reviewer_name": "Citra P.",
+      "service_title": "Servis kipas angin",
       "created_at": "2026-10-20T08:00:00.000Z"
     }
   ],
-  "meta": { "page": 1, "per_page": 12, "total": 1, "total_pages": 1 }
+  "meta": { "page": 1, "limit": 10, "total_items": 1, "total_pages": 1 }
 }
 ```
 
-Error: `404 NOT_FOUND`.
+Error: `400 VALIDATION_ERROR` (`page`/`limit` tidak valid), `404 NOT_FOUND`.
+
+### P10 `GET /provider/reviews`
+
+Provider membaca riwayat ulasannya sendiri untuk dasbor (FR-PROV-11, issue #42), termasuk ulasan yang disembunyikan admin. Query dan `meta` sama dengan P4. Item P4 ditambah `booking_code`, `is_hidden`, dan `hidden_reason` (alasan dari moderasi admin, AD4). Error: `401 UNAUTHENTICATED`, `403 FORBIDDEN` (bukan provider), `404 NOT_FOUND` (profil belum ada).
 
 ---
 

@@ -12,6 +12,8 @@ function toAuthUser(user) {
     phone: user.phone,
     avatar_url: user.avatar_url ?? null,
     has_password: user.has_password !== false && user.has_password !== 0,
+    // Kata sandi awal dari admin (mitra baru) wajib diganti sebelum dipakai (QA-02 R-10).
+    must_change_password: Boolean(user.must_change_password),
     email_verified: Boolean(user.email_verified_at),
     status: user.status,
   };

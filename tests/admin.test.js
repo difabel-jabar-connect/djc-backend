@@ -318,6 +318,7 @@ test('POST /admin/providers membuat akun mitra dengan password ter-hash; email g
   assert.equal(res.status, 201);
   assert.equal(res.body.data.user.role, 'provider');
   assert.equal(res.body.data.user.email, 'rina.baru@djc.test');
+  assert.equal(res.body.data.user.must_change_password, true);
   assert.equal(res.body.data.provider_profile.verification_status, 'pending');
   assert.ok(await bcrypt.compare('Rahasia123', repo.created[0].passwordHash));
   assert.equal(repo.created[0].adminId, admin.id);

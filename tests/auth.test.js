@@ -283,7 +283,7 @@ test('me tanpa token, token rusak, atau user sudah tidak ada mengembalikan 401',
   }
 });
 
-test('logout menghapus cookie dan wajib login', async () => {
+test('logout menghapus cookie, juga tanpa sesi atau dengan token kedaluwarsa', async () => {
   const users = fakeUsers();
   await seedUser(users);
   const app = createApp({ users });
@@ -299,8 +299,17 @@ test('logout menghapus cookie dan wajib login', async () => {
   assert.match(tokenCookie(res), /djc_token=;/);
   assert.match(tokenCookie(res), /Expires=Thu, 01 Jan 1970/);
 
+  // Tanpa sesi atau dengan token kedaluwarsa, cookie tetap dihapus (QA-02 R-05).
   const anonymous = await request(app).post('/api/v1/auth/logout');
-  assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.status, 200);
+  assert.match(tokenCookie(anonymous), /djc_token=;/);
+  // Token rusak/kedaluwarsa: tanda tangan tidak lagi cocok, verifikasi gagal seperti exp lewat.
+  const expired = `${signToken({ id: randomUUID(), role: 'customer' }).token.slice(0, -4)}AAAA`;
+  const stale = await request(app)
+    .post('/api/v1/auth/logout')
+    .set('Cookie', `djc_token=${expired}`);
+  assert.equal(stale.status, 200);
+  assert.match(tokenCookie(stale), /djc_token=;/);
 });
 
 test('requireRole menolak peran lain dengan 403 FORBIDDEN', async () => {
