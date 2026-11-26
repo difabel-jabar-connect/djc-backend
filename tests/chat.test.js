@@ -11,6 +11,7 @@ const createApp = require('../src/app');
 const { signToken } = require('../src/utils/token');
 const { createChatHub, sanitizeText } = require('../src/services/chat');
 const { attachChatSocket, parseCookies } = require('../src/realtime/chatSocket');
+const { createTokenBlacklist } = require('../src/services/tokenBlacklist');
 
 const customer = { id: randomUUID(), role: 'customer', status: 'active' };
 const otherCustomer = { id: randomUUID(), role: 'customer', status: 'active' };
@@ -341,7 +342,7 @@ test('tandai dibaca hanya pesan yang diterima, lalu inbox menghitung unread', as
 
 // --- Socket.io ---
 
-async function startSocketServer() {
+async function startSocketServer({ tokenBlacklist } = {}) {
   const ctx = setup();
   const server = ctx.app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
@@ -350,6 +351,7 @@ async function startSocketServer() {
     chat: ctx.chat,
     users: ctx.users,
     corsOrigins: ['http://localhost:5173'],
+    tokenBlacklist,
   });
   const url = `http://127.0.0.1:${server.address().port}`;
   const clients = [];
@@ -473,4 +475,28 @@ test('socket: room, pesan real-time, typing, read receipt, dan read-only', async
   const errorEvent = await chatError;
   assert.equal(errorEvent.event, 'send_message');
   assert.equal(errorEvent.code, 'CHAT_READ_ONLY');
+});
+
+test('socket: token yang dicabut setelah tersambung tidak bisa dipakai lagi', async (t) => {
+  const tokenBlacklist = createTokenBlacklist();
+  const ctx = await startSocketServer({ tokenBlacklist });
+  t.after(ctx.close);
+  const booking = ctx.chat.addBooking('accepted');
+
+  const { token, jti } = signToken(customer);
+  const socket = ctx.client({ auth: { token } });
+  await connected(socket);
+  assert.equal((await emit(socket, 'join_room', { booking_id: booking.id })).ok, true);
+
+  // Logout: jti dicabut ketika socket masih tersambung.
+  const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+  assert.equal(payload.jti, jti);
+  await tokenBlacklist.revokeToken(payload);
+
+  const disconnected = next(socket, 'disconnect');
+  const after = await emit(socket, 'send_message', { booking_id: booking.id, text: 'Masih bisa?' });
+  assert.equal(after.ok, false);
+  assert.equal(after.error.code, 'UNAUTHENTICATED');
+  await disconnected;
+  assert.equal(ctx.chat.messages.length, 0, 'pesan setelah logout tidak tersimpan');
 });

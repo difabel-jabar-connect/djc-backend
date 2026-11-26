@@ -3,6 +3,19 @@ const env = require('../config/env');
 const DEFAULT_USER_REVOKE_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
+ * true jika token terbit sebelum (atau tepat saat) pencabutan massal milik user-nya.
+ * Token baru membawa `iat_ms` sehingga login di detik yang sama setelah reset kata sandi
+ * tidak ikut tercabut; token lama tanpa `iat_ms` dibandingkan per detik seperti sebelumnya.
+ */
+function issuedBefore(payload, record) {
+  if (record.exceptJti && payload.jti === record.exceptJti) return false;
+  if (typeof payload.iat_ms === 'number' && typeof record.epochMs === 'number') {
+    return payload.iat_ms <= record.epochMs;
+  }
+  return payload.iat <= record.epochSec;
+}
+
+/**
  * Denylist JWT (OWASP A07) berbasis Redis dengan fallback in-memory.
  * - `revokeToken(payload)`: membatalkan satu token berdasarkan `jti` sampai `exp`.
  * - `revokeAllForUser(userId)`: membatalkan semua token milik user yang diterbitkan sebelum waktu ini
@@ -45,13 +58,14 @@ function createTokenBlacklist({ redis = null, prefix = env.redis.prefix } = {}) 
     { ttlSeconds = DEFAULT_USER_REVOKE_TTL_SECONDS, exceptJti = null } = {},
   ) {
     if (!userId) return;
-    const epochSec = Math.floor(Date.now() / 1000);
+    const epochMs = Date.now();
+    const epochSec = Math.floor(epochMs / 1000);
     prune();
-    const record = { epochSec, exceptJti, expiresAtMs: Date.now() + ttlSeconds * 1000 };
+    const record = { epochSec, epochMs, exceptJti, expiresAtMs: epochMs + ttlSeconds * 1000 };
     userRevokedBefore.set(userId, record);
     if (redis) {
       try {
-        await redis.set(userKey(userId), JSON.stringify({ epochSec, exceptJti }), {
+        await redis.set(userKey(userId), JSON.stringify({ epochSec, epochMs, exceptJti }), {
           EX: ttlSeconds,
         });
       } catch {
@@ -78,25 +92,13 @@ function createTokenBlacklist({ redis = null, prefix = env.redis.prefix } = {}) 
 
     if (payload.sub && typeof payload.iat === 'number') {
       const memUser = userRevokedBefore.get(payload.sub);
-      if (
-        memUser &&
-        memUser.expiresAtMs > nowMs &&
-        payload.iat <= memUser.epochSec &&
-        (!memUser.exceptJti || payload.jti !== memUser.exceptJti)
-      ) {
-        return true;
-      }
+      if (memUser && memUser.expiresAtMs > nowMs && issuedBefore(payload, memUser)) return true;
       if (redis) {
         try {
           const raw = await redis.get(userKey(payload.sub));
           if (raw !== null) {
             const parsed = raw.startsWith('{') ? JSON.parse(raw) : { epochSec: Number(raw) };
-            if (
-              payload.iat <= parsed.epochSec &&
-              (!parsed.exceptJti || payload.jti !== parsed.exceptJti)
-            ) {
-              return true;
-            }
+            if (issuedBefore(payload, parsed)) return true;
           }
         } catch {
           // Lanjutkan.
@@ -110,4 +112,4 @@ function createTokenBlacklist({ redis = null, prefix = env.redis.prefix } = {}) 
   return { revokeToken, revokeAllForUser, isRevoked };
 }
 
-module.exports = { createTokenBlacklist };
+module.exports = { createTokenBlacklist, issuedBefore };
