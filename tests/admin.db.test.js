@@ -101,7 +101,9 @@ test(
     const done = booking('completed');
     const open1 = booking('requested');
     const open2 = booking('accepted');
-    await knex('bookings').insert([done, open1, open2]);
+    // R-14: pesanan yang sedang dikerjakan ikut dibatalkan, supaya tidak tertahan.
+    const open3 = booking('in_progress');
+    await knex('bookings').insert([done, open1, open2, open3]);
     await knex('reviews').insert({
       id: ids.review,
       booking_id: done.id,
@@ -135,8 +137,24 @@ test(
     const reviewList = await call('get', `/reviews?provider_id=${ids.provider}`);
     assert.equal(reviewList.status, 200);
     assert.deepEqual(
-      reviewList.body.data.map((r) => [r.id, r.is_hidden, r.customer.name]),
-      [[ids.review, false, 'Uji Pelanggan']],
+      reviewList.body.data.map((r) => [r.id, r.is_hidden, r.customer.name, r.booking_code]),
+      [[ids.review, false, 'Uji Pelanggan', done.code]],
+    );
+
+    // AD10: monitoring pesanan lintas akun, filter status dan kode.
+    const bookingList = await call('get', `/bookings?status=requested,accepted&q=${open1.code}`);
+    assert.equal(bookingList.status, 200);
+    assert.deepEqual(
+      bookingList.body.data.map((b) => [b.id, b.status, b.category.id]),
+      [[open1.id, 'requested', category.id]],
+    );
+    const inRange = await call('get', '/bookings?date_from=2026-11-09&date_to=2026-11-09&limit=50');
+    assert.ok(inRange.body.data.some((b) => b.id === done.id));
+    assert.equal(
+      (await call('get', '/bookings?date_from=2026-11-10&q=DJC-A')).body.data.filter((b) =>
+        [done.id, open1.id, open2.id, open3.id].includes(b.id),
+      ).length,
+      0,
     );
     assert.equal(
       (await call('get', `/reviews?provider_id=${ids.provider}&hidden=true`)).body.data.length,
@@ -165,6 +183,21 @@ test(
     assert.equal(
       (await knex('provider_profiles').where({ id: newProfile }).first()).verification_status,
       'pending',
+    );
+
+    // R-10: kata sandi awal dari admin wajib diganti; penanda hilang setelah diganti.
+    const login = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: createdEmail, password: 'Rahasia123' });
+    assert.equal(login.body.data.user.must_change_password, true);
+    const changed = await request(app)
+      .put('/api/v1/me/password')
+      .set('Authorization', `Bearer ${login.body.data.token}`)
+      .send({ current_password: 'Rahasia123', new_password: 'SandiSendiri123' });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    assert.equal(
+      Boolean((await knex('users').where({ email: createdEmail }).first()).must_change_password),
+      false,
     );
 
     // Mitra baru belum punya lokasi: tidak bisa diverifikasi (CHECK database).
@@ -197,8 +230,8 @@ test(
       reason: 'Melanggar ketentuan layanan.',
     });
     assert.equal(suspended.status, 200);
-    assert.equal(suspended.body.data.cancelled_bookings, 2);
-    for (const id of [open1.id, open2.id]) {
+    assert.equal(suspended.body.data.cancelled_bookings, 3);
+    for (const id of [open1.id, open2.id, open3.id]) {
       const row = await knex('bookings').where({ id }).first();
       assert.equal(row.status, 'cancelled');
       assert.equal(row.cancelled_by, 'admin');
@@ -223,5 +256,20 @@ test(
       'unhide_review',
       'suspend_user',
     ]);
+
+    // AD11: jejak audit yang sama lewat API, terbaru dulu, dengan nama admin.
+    const audit = await call('get', `/audit?admin_id=${ids.admin}&limit=50`);
+    assert.equal(audit.status, 200);
+    assert.deepEqual(
+      audit.body.data.map((a) => a.action),
+      [...actions].reverse(),
+    );
+    assert.equal(audit.body.data[0].target_id, ids.providerUser);
+    assert.ok(audit.body.data[0].admin.name);
+    const onlyReview = await call('get', `/audit?target_type=review&target_id=${ids.review}`);
+    assert.deepEqual(
+      onlyReview.body.data.map((a) => a.action),
+      ['unhide_review', 'hide_review'],
+    );
   },
 );

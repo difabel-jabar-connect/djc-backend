@@ -78,6 +78,8 @@ function attachChatSocket(
       return next(error);
     }
     socket.data.auth = { userId: payload.sub, role: payload.role };
+    // Disimpan untuk cek ulang pencabutan di tiap event (logout/ganti sandi setelah tersambung).
+    socket.data.token = payload;
     // bookingId → peran di booking itu, untuk room yang sudah diikuti socket ini.
     socket.data.joined = new Map();
     return next();
@@ -91,6 +93,15 @@ function attachChatSocket(
       socket.on(event, async (payload, ack) => {
         const callback = typeof payload === 'function' ? payload : ack;
         const input = payload && typeof payload === 'object' ? payload : {};
+        // Token yang dicabut setelah socket tersambung (logout, ganti/reset kata sandi)
+        // tidak boleh dipakai lagi: tolak event-nya lalu putuskan koneksi.
+        if (tokenBlacklist && (await tokenBlacklist.isRevoked(socket.data.token))) {
+          const body = { code: 'UNAUTHENTICATED', message: 'Silakan masuk terlebih dahulu.' };
+          if (typeof callback === 'function') callback({ ok: false, error: body });
+          else socket.emit('chat_error', { event, ...body });
+          socket.disconnect(true);
+          return;
+        }
         try {
           const data = await fn(input);
           if (typeof callback === 'function') callback({ ok: true, data });

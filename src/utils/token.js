@@ -22,7 +22,8 @@ function getSecret() {
 function signToken(user, { remember = false } = {}) {
   const expiresIn = remember ? env.auth.jwtRememberExpiresIn : env.auth.jwtExpiresIn;
   const jti = crypto.randomUUID();
-  const token = jwt.sign({ role: user.role }, getSecret(), {
+  // iat_ms: waktu terbit presisi milidetik untuk pencabutan sesi massal (tokenBlacklist).
+  const token = jwt.sign({ role: user.role, iat_ms: Date.now() }, getSecret(), {
     subject: user.id,
     jwtid: jti,
     expiresIn,

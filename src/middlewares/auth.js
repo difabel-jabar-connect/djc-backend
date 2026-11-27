@@ -91,4 +91,4 @@ function requireActiveUser({ users = userRepository } = {}) {
   };
 }
 
-module.exports = { requireAuth, requireRole, requireActiveUser };
+module.exports = { requireAuth, requireRole, requireActiveUser, readToken };

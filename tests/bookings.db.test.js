@@ -21,6 +21,7 @@ test(
     const suffix = randomUUID().slice(0, 8);
     const ids = {
       customer: randomUUID(),
+      otherCustomer: randomUUID(),
       providerUser: randomUUID(),
       provider: randomUUID(),
       hourly: randomUUID(),
@@ -34,7 +35,7 @@ test(
       await knex('services').where({ provider_id: ids.provider }).del();
       await knex('provider_availability').where({ provider_id: ids.provider }).del();
       await knex('provider_profiles').where({ id: ids.provider }).del();
-      await knex('users').whereIn('id', [ids.customer, ids.providerUser]).del();
+      await knex('users').whereIn('id', [ids.customer, ids.otherCustomer, ids.providerUser]).del();
       await deleteTestCategory(knex, suffix);
       await knex.destroy();
       await db.closePool();
@@ -49,6 +50,14 @@ test(
         full_name: 'Uji Pemesan',
         email: `uji-pemesan-${suffix}@djc.test`,
         phone: '+6281299990013',
+        password_hash: 'x',
+      },
+      {
+        id: ids.otherCustomer,
+        role: 'customer',
+        full_name: 'Uji Pemesan Dua',
+        email: `uji-pemesan2-${suffix}@djc.test`,
+        phone: '+6281299990015',
         password_hash: 'x',
       },
       {
@@ -106,6 +115,9 @@ test(
     const app = createApp({ now: () => new Date('2026-11-02T03:00:00Z') });
     const asCustomer = `Bearer ${signToken({ id: ids.customer, role: 'customer' }).token}`;
     const asProvider = `Bearer ${signToken({ id: ids.providerUser, role: 'provider' }).token}`;
+    const asOtherCustomer = `Bearer ${
+      signToken({ id: ids.otherCustomer, role: 'customer' }).token
+    }`;
 
     const created = await request(app)
       .post('/api/v1/bookings')
@@ -242,28 +254,48 @@ test(
 
     // Accept menolak jadwal yang tumpang tindih (start_time + quantity jam) dengan pesanan
     // yang sudah diterima: 09:00–11:00 sudah diterima, 10:00 bentrok, 11:00 pas setelahnya.
-    const book = async (startTime) => {
-      const res = await request(app)
-        .post('/api/v1/bookings')
-        .set('Authorization', asCustomer)
-        .send({
-          service_id: ids.hourly,
-          scheduled_date: '2026-11-16',
-          start_time: startTime,
-          service_mode: 'at_provider',
-          quantity: 2,
-        });
+    const book = async (startTime, as = asCustomer) => {
+      const res = await request(app).post('/api/v1/bookings').set('Authorization', as).send({
+        service_id: ids.hourly,
+        scheduled_date: '2026-11-16',
+        start_time: startTime,
+        service_mode: 'at_provider',
+        quantity: 2,
+      });
       assert.equal(res.status, 201, JSON.stringify(res.body));
       return res.body.data.id;
     };
     const accept = (bookingId) =>
       request(app).put(`/api/v1/bookings/${bookingId}/accept`).set('Authorization', asProvider);
-    const [nine, ten, eleven] = [await book('09:00'), await book('10:00'), await book('11:00')];
+    // 10:00 diajukan customer lain: customer yang sama tidak boleh memesan jam yang bertabrakan.
+    const nine = await book('09:00');
+    const ten = await book('10:00', asOtherCustomer);
+    const eleven = await book('11:00');
     assert.equal((await accept(nine)).status, 200);
     const clash = await accept(ten);
     assert.equal(clash.status, 409, JSON.stringify(clash.body));
     assert.equal(clash.body.error.code, 'CONFLICT');
     assert.equal((await knex('bookings').where({ id: ten }).first()).status, 'requested');
     assert.equal((await accept(eleven)).status, 200);
+
+    // Setelah 09:00–11:00 diterima, pesanan baru yang menabrak jam itu ditolak 409.
+    const taken = await request(app)
+      .post('/api/v1/bookings')
+      .set('Authorization', asOtherCustomer)
+      .send({
+        service_id: ids.hourly,
+        scheduled_date: '2026-11-16',
+        start_time: '09:30',
+        service_mode: 'at_provider',
+        quantity: 2,
+      });
+    assert.equal(taken.status, 409, JSON.stringify(taken.body));
+
+    // Detail pesanan membawa kategori layanan dan rating penyedia.
+    const detail = await request(app)
+      .get(`/api/v1/bookings/${nine}`)
+      .set('Authorization', asCustomer);
+    assert.equal(detail.body.data.service.category.id, category.id);
+    assert.equal(detail.body.data.provider.rating_count, 0);
   },
 );

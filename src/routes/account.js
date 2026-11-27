@@ -8,7 +8,7 @@ const { createRateLimitStore } = require('../services/rateLimitStore');
 const { ApiError, sendSuccess } = require('../utils/response');
 const { validate } = require('../utils/validate');
 const { toAuthUser } = require('./authUser');
-const { image, uploadJson } = require('./imageUpload');
+const { image, uploadJson, discardImage } = require('./imageUpload');
 const { signToken, setTokenCookie } = require('../utils/token');
 
 const MAX_ADDRESSES = 10;
@@ -222,12 +222,16 @@ function createAccountRouter({
       if (!env.isTest) console.error(`[cloudinary] ${error.message}`);
       throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Upload foto gagal. Silakan coba lagi.');
     }
+    const previous = (await currentUser(req)).avatar_url;
     await users.updateAvatar(req.auth.userId, uploaded.url);
+    if (previous !== uploaded.url) await discardImage(cloudinary, previous);
     return sendSuccess(res, { user: toAuthUser(await currentUser(req)) });
   });
 
   router.delete('/photo', async (req, res) => {
+    const previous = (await currentUser(req)).avatar_url;
     await users.updateAvatar(req.auth.userId, null);
+    await discardImage(cloudinary, previous);
     return sendSuccess(res, { user: toAuthUser(await currentUser(req)) });
   });
 

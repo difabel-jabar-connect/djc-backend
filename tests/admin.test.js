@@ -136,6 +136,7 @@ function fakeAdmin() {
             {
               id: review.id,
               booking_id: randomUUID(),
+              booking_code: 'DJC-7K2M9QXA',
               rating: 1,
               comment: 'Buruk',
               is_hidden: 0,
@@ -152,6 +153,59 @@ function fakeAdmin() {
       async listUsers(query) {
         this.listCalls.push(['users', query]);
         return { total: 0, items: [] };
+      },
+      async listBookings(query) {
+        this.listCalls.push(['bookings', query]);
+        return {
+          total: 1,
+          items: [
+            {
+              id: 'b1',
+              code: 'DJC-7K2M9QXA',
+              status: 'completed',
+              scheduled_date: new Date('2026-11-27T00:00:00.000Z'),
+              start_time: '10:00:00',
+              service_mode: 'at_customer',
+              location_area: 'Coblong',
+              location_address: 'Jl. Rahasia No. 1',
+              pricing_type_snapshot: 'starting_from',
+              estimated_total: '75000.00',
+              final_total: '150000.00',
+              cancelled_by: null,
+              status_reason: null,
+              created_at: '2026-11-26T05:00:00.000Z',
+              updated_at: '2026-11-26T06:00:00.000Z',
+              service_id: 's1',
+              service_title: 'Servis TV',
+              category_id: 'c1',
+              category_name: 'Servis Elektronik',
+              provider_id: complete.id,
+              provider_name: 'Deni',
+              provider_city: 'Kota Bekasi',
+              customer_id: customer.id,
+              customer_name: 'Budi',
+              customer_phone: '+6281200000010',
+            },
+          ],
+        };
+      },
+      async listAdminActions(query) {
+        this.listCalls.push(['audit', query]);
+        return {
+          total: 1,
+          items: [
+            {
+              id: 'a1',
+              action: 'suspend_user',
+              target_type: 'user',
+              target_id: customer.id,
+              note: 'Melanggar aturan',
+              created_at: '2026-11-26T06:00:00.000Z',
+              admin_id: admin.id,
+              admin_name: 'Andi',
+            },
+          ],
+        };
       },
       async findUser(id) {
         return userRows.get(id) ?? null;
@@ -264,6 +318,7 @@ test('POST /admin/providers membuat akun mitra dengan password ter-hash; email g
   assert.equal(res.status, 201);
   assert.equal(res.body.data.user.role, 'provider');
   assert.equal(res.body.data.user.email, 'rina.baru@djc.test');
+  assert.equal(res.body.data.user.must_change_password, true);
   assert.equal(res.body.data.provider_profile.verification_status, 'pending');
   assert.ok(await bcrypt.compare('Rahasia123', repo.created[0].passwordHash));
   assert.equal(repo.created[0].adminId, admin.id);
@@ -435,6 +490,7 @@ test('GET /admin/reviews: termasuk ulasan tersembunyi, filter hidden dan provide
   assert.equal(res.body.data[0].is_hidden, false);
   assert.deepEqual(res.body.data[0].provider, { id: repo.complete.id, display_name: 'Deni' });
   assert.deepEqual(res.body.data[0].customer, { id: customer.id, name: 'Budi' });
+  assert.equal(res.body.data[0].booking_code, 'DJC-7K2M9QXA');
 
   const bad = await request(app)
     .get('/api/v1/admin/reviews?hidden=ya&provider_id=123')
@@ -464,4 +520,100 @@ test('GET /admin/users: hasil kosong tetap 200, hanya admin', async () => {
       .set('Authorization', bearer(customer));
     assert.equal(forbidden.status, 403, path);
   }
+});
+
+test('GET /admin/bookings: semua pesanan lintas akun tanpa kontak, filter status/tanggal/q', async () => {
+  const { app, repo } = setup();
+
+  const res = await request(app)
+    .get(
+      '/api/v1/admin/bookings?status=completed,cancelled&q=DJC&date_from=2026-11-01&date_to=2026-11-30&limit=20',
+    )
+    .set('Authorization', bearer(admin));
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(repo.listCalls[0], [
+    'bookings',
+    {
+      statuses: ['completed', 'cancelled'],
+      q: 'DJC',
+      dateFrom: '2026-11-01',
+      dateTo: '2026-11-30',
+      page: 1,
+      limit: 20,
+    },
+  ]);
+  assert.deepEqual(res.body.meta, { page: 1, limit: 20, total_items: 1, total_pages: 1 });
+  const [item] = res.body.data;
+  assert.equal(item.code, 'DJC-7K2M9QXA');
+  assert.equal(item.scheduled_date, '2026-11-27');
+  assert.equal(item.start_time, '10:00');
+  assert.equal(item.estimated_total, 75000);
+  assert.equal(item.final_total, 150000);
+  assert.deepEqual(item.category, { id: 'c1', name: 'Servis Elektronik' });
+  assert.deepEqual(item.customer, { id: customer.id, name: 'Budi' });
+  assert.doesNotMatch(
+    JSON.stringify(res.body),
+    /Rahasia|\+6281200000010/,
+    'alamat & HP tidak dikirim',
+  );
+
+  for (const query of [
+    'status=aktif',
+    'date_from=27-11-2026',
+    'date_from=2026-12-01&date_to=2026-11-01',
+    'limit=51',
+  ]) {
+    const bad = await request(app)
+      .get(`/api/v1/admin/bookings?${query}`)
+      .set('Authorization', bearer(admin));
+    assert.equal(bad.status, 400, query);
+  }
+  for (const user of [customer, provider]) {
+    const forbidden = await request(app)
+      .get('/api/v1/admin/bookings')
+      .set('Authorization', bearer(user));
+    assert.equal(forbidden.status, 403);
+  }
+});
+
+test('GET /admin/audit: jejak aksi admin terbaru dulu, filter aksi dan target', async () => {
+  const { app, repo } = setup();
+
+  const res = await request(app)
+    .get(`/api/v1/admin/audit?action=suspend_user&target_type=user&target_id=${customer.id}`)
+    .set('Authorization', bearer(admin));
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(repo.listCalls[0], [
+    'audit',
+    {
+      action: 'suspend_user',
+      targetType: 'user',
+      targetId: customer.id,
+      adminId: undefined,
+      page: 1,
+      limit: 12,
+    },
+  ]);
+  assert.deepEqual(res.body.data[0], {
+    id: 'a1',
+    action: 'suspend_user',
+    target_type: 'user',
+    target_id: customer.id,
+    note: 'Melanggar aturan',
+    created_at: '2026-11-26T06:00:00.000Z',
+    admin: { id: admin.id, name: 'Andi' },
+  });
+
+  const bad = await request(app)
+    .get('/api/v1/admin/audit?action=hapus_semua&admin_id=123')
+    .set('Authorization', bearer(admin));
+  assert.equal(bad.status, 400);
+  assert.deepEqual(bad.body.error.details.map((d) => d.field).sort(), ['action', 'admin_id']);
+
+  const forbidden = await request(app)
+    .get('/api/v1/admin/audit')
+    .set('Authorization', bearer(provider));
+  assert.equal(forbidden.status, 403);
 });

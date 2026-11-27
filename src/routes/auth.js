@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const { rateLimit } = require('express-rate-limit');
 const { z } = require('zod');
 const env = require('../config/env');
-const { requireAuth } = require('../middlewares/auth');
+const { requireAuth, readToken } = require('../middlewares/auth');
 const { createRateLimitStore } = require('../services/rateLimitStore');
 const createGoogleAuthRouter = require('./googleAuth');
 const crypto = require('node:crypto');
@@ -19,6 +19,7 @@ const {
   verifyResetToken,
   signGoogleSignupToken,
   verifyGoogleSignupToken,
+  verifyToken,
 } = require('../utils/token');
 
 const email = z
@@ -327,8 +328,12 @@ function createAuthRouter({
   router.use('/google', createGoogleAuthRouter({ users, googleOAuth }));
 
   // A3 POST /auth/logout — cabut JWT aktif (jti denylist) dan hapus cookie sesi.
-  router.post('/logout', requireAuth, async (req, res) => {
-    await tokenBlacklist?.revokeToken(req.auth);
+  // Logout selalu menghapus cookie, termasuk saat token sudah kedaluwarsa atau tidak valid
+  // (QA-02 R-05). Token yang masih valid juga dicabut supaya tidak bisa dipakai ulang.
+  router.post('/logout', async (req, res) => {
+    const token = readToken(req);
+    const payload = token ? verifyToken(token) : null;
+    if (payload?.sub) await tokenBlacklist?.revokeToken(payload);
     clearTokenCookie(res);
     return sendSuccess(res, { logged_out: true });
   });
