@@ -228,4 +228,33 @@ async function updateOwn(providerId, id, changes) {
   return findOwn(providerId, id);
 }
 
-module.exports = { search, findPublicById, listOwn, findOwn, createOwn, updateOwn, SORTS };
+/**
+ * Mengaktifkan/menonaktifkan sekaligus semua layanan milik provider ini, atau hanya `ids`
+ * (milik provider ini) jika diisi. Mengembalikan jumlah layanan yang statusnya berubah.
+ */
+async function setActiveOwn(providerId, isActive, ids) {
+  const params = [isActive, providerId, !isActive];
+  let filter = '';
+  if (ids?.length) {
+    filter = ` AND id IN (${ids.map(() => '?').join(', ')})`;
+    params.push(...ids);
+  }
+  const [result] = await db
+    .getPool()
+    .query(
+      `UPDATE services SET is_active = ? WHERE provider_id = ? AND is_active = ?${filter}`,
+      params,
+    );
+  return result.affectedRows;
+}
+
+module.exports = {
+  search,
+  findPublicById,
+  listOwn,
+  findOwn,
+  createOwn,
+  updateOwn,
+  setActiveOwn,
+  SORTS,
+};

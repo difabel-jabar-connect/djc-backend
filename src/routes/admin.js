@@ -183,7 +183,7 @@ function countBy(rows, key, keys) {
 const notFound = (what) => new ApiError(404, 'NOT_FOUND', `${what} tidak ditemukan.`);
 
 /** BE-09: dasbor admin, verifikasi mitra, moderasi ulasan, penangguhan akun. */
-function createAdminRouter({ admin, users }) {
+function createAdminRouter({ admin, users, cloudinary }) {
   const router = express.Router();
   router.use(requireAuth, requireRole('admin'), requireActiveUser({ users }));
 
@@ -232,6 +232,8 @@ function createAdminRouter({ admin, users }) {
       city: row.city,
       district: row.district,
       has_location: Boolean(row.has_location),
+      has_ktp: Boolean(row.has_ktp),
+      ktp_uploaded_at: row.ktp_uploaded_at ?? null,
       verification_status: row.verification_status,
       verified_at: row.verified_at,
       rating_avg: Number(row.rating_avg),
@@ -311,6 +313,11 @@ function createAdminRouter({ admin, users }) {
       pricing_type_snapshot: row.pricing_type_snapshot,
       estimated_total: Number(row.estimated_total),
       final_total: row.final_total === null ? null : Number(row.final_total),
+      payment: {
+        method: row.payment_method,
+        status: row.payment_status,
+        paid_at: row.paid_at,
+      },
       cancelled_by: row.cancelled_by,
       status_reason: row.status_reason,
       created_at: row.created_at,
@@ -393,6 +400,13 @@ function createAdminRouter({ admin, users }) {
   router.put('/providers/:id/verify', async (req, res) => {
     const body = validate(verifySchema, req.body);
     const profile = await load(admin.findProviderProfile, req.params.id, 'Penyedia jasa');
+    if (body.status === 'verified' && !profile.ktp_public_id) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'Penyedia jasa belum bisa diverifikasi: foto KTP belum diunggah.',
+      );
+    }
     if (body.status === 'verified' && (!profile.address_detail || profile.lat === null)) {
       throw new ApiError(
         400,
@@ -419,6 +433,34 @@ function createAdminRouter({ admin, users }) {
       }
       throw error;
     }
+  });
+
+  // GET /admin/providers/:id/ktp: isi foto KTP mitra untuk verifikasi, dialirkan lewat
+  // backend (URL Cloudinary berlaku permanen, jadi tidak pernah dikirim ke klien).
+  // Setiap penayangan dicatat `view_provider_ktp` di jejak audit.
+  router.get('/providers/:id/ktp', async (req, res) => {
+    const profile = await load(admin.findProviderProfile, req.params.id, 'Penyedia jasa');
+    if (!profile.ktp_public_id) {
+      throw new ApiError(404, 'NOT_FOUND', 'Penyedia jasa ini belum mengunggah foto KTP.');
+    }
+    if (!cloudinary.configured)
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Penyimpanan gambar belum diaktifkan.');
+    let image;
+    try {
+      image = await cloudinary.fetchAuthenticated(profile.ktp_public_id);
+    } catch (error) {
+      if (!env.isTest) console.error(`[cloudinary] ${error.message}`);
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Foto KTP gagal dimuat. Silakan coba lagi.');
+    }
+    await admin.logKtpView({ adminId: req.auth.userId, profileId: profile.id });
+    const contentType = image.contentType?.startsWith('image/') ? image.contentType : 'image/webp';
+    res.set({
+      'Content-Type': contentType,
+      'Cache-Control': 'no-store, private',
+      'Content-Disposition': 'inline; filename="ktp.webp"',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return res.status(200).send(image.body);
   });
 
   // PUT /admin/reviews/:id/moderate

@@ -135,6 +135,9 @@ function fakeBookings() {
         estimated_total: booking.estimatedTotal,
         actual_quantity: null,
         final_total: null,
+        payment_method: booking.paymentMethod,
+        payment_status: 'unpaid',
+        paid_at: null,
         cancelled_by: null,
         status_reason: null,
         history: [
@@ -147,6 +150,12 @@ function fakeBookings() {
     },
     async findById(id) {
       return withHistory(rows.get(id));
+    },
+    async markPaid(id) {
+      const row = rows.get(id);
+      if (row.payment_status === 'paid') return null;
+      Object.assign(row, { payment_status: 'paid', paid_at: NOW });
+      return withHistory(row);
     },
     async list({ customerId, providerId, statuses, page, limit }) {
       const items = [...rows.values()].filter(
@@ -185,10 +194,21 @@ function fakeBookings() {
   };
 }
 
+function fakePaymentAccounts() {
+  const byProvider = new Map();
+  return {
+    byProvider,
+    async listByProvider(providerId) {
+      return byProvider.get(providerId) ?? [];
+    },
+  };
+}
+
 function setup() {
   const bookings = fakeBookings();
-  const app = createApp({ bookings, users: fakeUsers(), now: () => NOW });
-  return { app, bookings };
+  const paymentAccounts = fakePaymentAccounts();
+  const app = createApp({ bookings, paymentAccounts, users: fakeUsers(), now: () => NOW });
+  return { app, bookings, paymentAccounts };
 }
 
 const fixedBody = {
@@ -230,6 +250,8 @@ test('B1 customer membuat booking requested dengan snapshot harga dan riwayat', 
     quantity: 3,
     location_area: 'Bekasi Timur, Kota Bekasi',
     location_address: 'Jl. Melati No. 10',
+    location_lat: -6.24,
+    location_lng: 106.98,
     customer_note: 'Rumah pagar hijau.',
   });
 
@@ -258,6 +280,8 @@ test('B1 validasi: tanggal lampau, di luar jam, mode tidak tersedia, jam minimum
     quantity: 3,
     location_area: 'Bekasi Timur',
     location_address: 'Jl. Melati No. 10',
+    location_lat: -6.24,
+    location_lng: 106.98,
   };
   const cases = [
     [{ ...fixedBody, scheduled_date: '2026-11-01' }, 'scheduled_date'],
@@ -425,6 +449,8 @@ test('accept ditolak 409 jika jadwalnya tumpang tindih dengan pesanan yang sudah
     quantity: 2,
     location_area: 'Bekasi Timur',
     location_address: 'Jl. Melati No. 10',
+    location_lat: -6.24,
+    location_lng: 106.98,
   };
   const overlapping = await createBooking(app, { ...hourly, start_time: '13:30' }, otherCustomer);
   const adjacent = await createBooking(app, { ...hourly, start_time: '14:00' });
@@ -553,6 +579,8 @@ test('complete: hourly wajib actual_quantity, starting_from wajib final_total â‰
     quantity: 2,
     location_area: 'Bekasi Timur',
     location_address: 'Jl. Melati No. 10',
+    location_lat: -6.24,
+    location_lng: 106.98,
   });
   assert.equal((await act(app, providerUser, hourly.id, 'complete')).status, 400);
   const hourlyDone = await act(app, providerUser, hourly.id, 'complete', { actual_quantity: 2.5 });
@@ -610,4 +638,107 @@ test('peran salah: customer tidak bisa accept (403), provider lain dan admin tid
   assert.equal(res.body.error.code, 'FORBIDDEN');
   assert.equal((await act(app, otherProviderUser, booking.id, 'accept')).status, 404);
   assert.equal((await act(app, admin, booking.id, 'accept')).status, 403);
+});
+
+const atCustomerBody = {
+  service_id: SERVICES.fixed.id,
+  scheduled_date: MONDAY,
+  start_time: '11:00',
+  service_mode: 'at_customer',
+  location_area: 'Bekasi Timur',
+  location_address: 'Jl. Melati No. 10',
+  location_lat: -6.238321,
+  location_lng: 106.975612,
+};
+
+test('B1 layanan di lokasi customer wajib titik pin; penyedia dapat link navigasi setelah diterima', async () => {
+  const { app } = setup();
+  const noPin = await request(app)
+    .post('/api/v1/bookings')
+    .set('Authorization', bearer(customer))
+    .send({ ...atCustomerBody, location_lat: undefined, location_lng: undefined });
+  assert.equal(noPin.status, 400);
+  assert.equal(noPin.body.error.details[0].field, 'location_lat');
+
+  const booking = await createBooking(app, atCustomerBody);
+  const view = (user) =>
+    request(app).get(`/api/v1/bookings/${booking.id}`).set('Authorization', bearer(user));
+  assert.equal((await view(providerUser)).body.data.location.navigation_url, null);
+  assert.equal((await act(app, providerUser, booking.id, 'accept')).status, 200);
+  assert.equal(
+    (await view(providerUser)).body.data.location.navigation_url,
+    'https://www.google.com/maps/dir/?api=1&destination=-6.238321,106.975612',
+  );
+  assert.equal((await view(customer)).body.data.location.navigation_url, null);
+});
+
+test('pembayaran: default COD; transfer/QRIS hanya jika penyedia punya tujuan pembayarannya', async () => {
+  const { app, paymentAccounts } = setup();
+  const cod = await createBooking(app);
+  assert.deepEqual(cod.payment, { method: 'cod', status: 'unpaid', paid_at: null, accounts: null });
+
+  const post = (body) =>
+    request(app).post('/api/v1/bookings').set('Authorization', bearer(customer)).send(body);
+  for (const method of ['transfer', 'qris']) {
+    const res = await post({ ...fixedBody, start_time: '13:00', payment_method: method });
+    assert.equal(res.status, 400, method);
+    assert.equal(res.body.error.details[0].field, 'payment_method');
+  }
+  assert.equal((await post({ ...fixedBody, payment_method: 'gopay' })).status, 400);
+
+  const bank = {
+    id: randomUUID(),
+    type: 'bank',
+    provider_name: 'BCA',
+    account_number: '1234567890',
+    account_holder: 'Deni',
+    qris_image_url: null,
+    created_at: NOW,
+  };
+  const qris = {
+    id: randomUUID(),
+    type: 'qris',
+    provider_name: 'QRIS',
+    account_number: null,
+    account_holder: null,
+    qris_image_url: 'https://res.cloudinary.com/demo/image/upload/qris.webp',
+    created_at: NOW,
+  };
+  paymentAccounts.byProvider.set(PROVIDER_ID, [qris, bank]);
+  const transfer = await createBooking(app, {
+    ...fixedBody,
+    start_time: '13:00',
+    payment_method: 'transfer',
+  });
+  assert.equal(transfer.payment.method, 'transfer');
+
+  const view = (user) =>
+    request(app).get(`/api/v1/bookings/${transfer.id}`).set('Authorization', bearer(user));
+  // Rekening baru terlihat oleh customer setelah pesanan diterima, dan hanya yang cocok.
+  assert.equal((await view(customer)).body.data.payment.accounts, null);
+  await act(app, providerUser, transfer.id, 'accept');
+  const opened = (await view(customer)).body.data.payment.accounts;
+  assert.deepEqual(
+    opened.map((a) => [a.type, a.account_number]),
+    [['bank', '1234567890']],
+  );
+  assert.equal((await view(providerUser)).body.data.payment.accounts, null);
+});
+
+test('P1 confirm-payment: hanya penyedia, sejak diterima, sekali saja', async () => {
+  const { app } = setup();
+  const booking = await createBooking(app);
+  const confirm = (user) => act(app, user, booking.id, 'confirm-payment', {}, 'post');
+
+  assert.equal((await confirm(providerUser)).status, 409, 'requested belum bisa');
+  await act(app, providerUser, booking.id, 'accept');
+  assert.equal((await confirm(customer)).status, 403);
+  assert.equal((await confirm(otherProviderUser)).status, 404);
+
+  const paid = await confirm(providerUser);
+  assert.equal(paid.status, 200, JSON.stringify(paid.body));
+  assert.equal(paid.body.data.payment.status, 'paid');
+  assert.ok(paid.body.data.payment.paid_at);
+  assert.equal(paid.body.data.status, 'accepted', 'status pesanan tidak berubah');
+  assert.equal((await confirm(providerUser)).status, 409);
 });

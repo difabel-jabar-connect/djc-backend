@@ -62,6 +62,16 @@ function setup() {
       rows.set(row.id, row);
       return view(row);
     },
+    async setActiveOwn(providerId, isActive, ids) {
+      let changed = 0;
+      for (const row of rows.values()) {
+        if (row.provider_id !== providerId || row.is_active === isActive) continue;
+        if (ids && !ids.includes(row.id)) continue;
+        row.is_active = isActive;
+        changed += 1;
+      }
+      return changed;
+    },
     async updateOwn(providerId, id, changes) {
       const row = rows.get(id);
       if (!row || row.provider_id !== providerId) return null;
@@ -265,4 +275,43 @@ test('tanpa login 401, customer 403, provider suspended tidak bisa menambah laya
     .set('Authorization', bearer(suspendedProvider))
     .send(validService);
   assert.equal(suspended.status, 403);
+});
+
+test('nonaktifkan semua layanan sekaligus, atau hanya yang dipilih; layanan orang lain aman', async () => {
+  const { app } = setup();
+  const create = async (user, title) =>
+    (
+      await request(app)
+        .post('/api/v1/provider/services')
+        .set('Authorization', bearer(user))
+        .send({ ...validService, title })
+    ).body.data;
+  const a = await create(providerUser, 'Layanan A');
+  const b = await create(providerUser, 'Layanan B');
+  const other = await create(otherProviderUser, 'Milik orang lain');
+  const bulk = (body, user = providerUser) =>
+    request(app)
+      .put('/api/v1/provider/services/active')
+      .set('Authorization', bearer(user))
+      .send(body);
+
+  const one = await bulk({ is_active: false, ids: [a.id, other.id] });
+  assert.equal(one.status, 200);
+  assert.equal(one.body.data.changed, 1, 'hanya layanan milik sendiri');
+
+  const all = await bulk({ is_active: false });
+  assert.equal(all.status, 200);
+  assert.equal(all.body.data.changed, 1);
+  assert.ok(all.body.data.items.every((item) => item.is_active === false));
+
+  const otherList = await request(app)
+    .get('/api/v1/provider/services')
+    .set('Authorization', bearer(otherProviderUser));
+  assert.equal(otherList.body.data[0].is_active, true);
+
+  assert.equal((await bulk({ is_active: true })).body.data.changed, 2);
+  assert.equal(b.is_active, true);
+  assert.equal((await bulk({})).status, 400);
+  assert.equal((await bulk({ is_active: false, ids: [] })).status, 400);
+  assert.equal((await bulk({ is_active: false }, customerUser)).status, 403);
 });

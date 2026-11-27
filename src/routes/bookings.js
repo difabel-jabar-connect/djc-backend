@@ -75,11 +75,25 @@ function contactAccess(row, viewer) {
 }
 
 /**
- * Bentuk booking untuk respons (B2/B3). Field privat diisi atau dikosongkan (`null`)
- * menurut contactAccess(), dipakai sama untuk daftar maupun detail.
+ * Link navigasi Google Maps ke titik pin pelanggan (gratis, tanpa API key). Hanya untuk
+ * penyedia jasa selama lokasi pelanggan terbuka untuknya.
  */
-function toBooking(row, viewer) {
+function navigationUrl(lat, lng) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+}
+
+// Jenis tujuan pembayaran yang cocok untuk tiap metode non-tunai.
+const ACCOUNT_TYPES_FOR = { transfer: ['bank', 'ewallet'], qris: ['qris'] };
+
+/**
+ * Bentuk booking untuk respons (B2/B3). Field privat diisi atau dikosongkan (`null`)
+ * menurut contactAccess(), dipakai sama untuk daftar maupun detail. `paymentAccounts`
+ * (tujuan transfer/QRIS penyedia) hanya diisi di detail untuk pelanggan saat kontak terbuka.
+ */
+function toBooking(row, viewer, { paymentAccounts } = {}) {
   const access = contactAccess(row, viewer);
+  const lat = access.customerLocation ? toNumber(row.location_lat) : null;
+  const lng = access.customerLocation ? toNumber(row.location_lng) : null;
   const booking = {
     id: row.id,
     code: row.code,
@@ -111,8 +125,12 @@ function toBooking(row, viewer) {
     location: {
       area: row.location_area,
       address: access.customerLocation ? row.location_address : null,
-      lat: access.customerLocation ? toNumber(row.location_lat) : null,
-      lng: access.customerLocation ? toNumber(row.location_lng) : null,
+      lat,
+      lng,
+      navigation_url:
+        viewer === 'provider' && row.service_mode === 'at_customer' && lat !== null
+          ? navigationUrl(lat, lng)
+          : null,
     },
     customer_note: row.customer_note,
     pricing_type_snapshot: row.pricing_type_snapshot,
@@ -121,6 +139,12 @@ function toBooking(row, viewer) {
     estimated_total: Number(row.estimated_total),
     actual_quantity: toNumber(row.actual_quantity),
     final_total: toNumber(row.final_total),
+    payment: {
+      method: row.payment_method ?? 'cod',
+      status: row.payment_status ?? 'unpaid',
+      paid_at: row.paid_at ?? null,
+      accounts: paymentAccounts ?? null,
+    },
     cancelled_by: row.cancelled_by,
     status_reason: row.status_reason,
     // Customer pemilik bisa memberi satu ulasan setelah pesanan selesai (R1, BE-08).
@@ -180,15 +204,23 @@ const createSchema = z
     location_lat: z.number('Latitude harus berupa angka.').min(-90).max(90).optional(),
     location_lng: z.number('Longitude harus berupa angka.').min(-180).max(180).optional(),
     customer_note: z.string().trim().max(500, 'Catatan maksimal 500 karakter.').optional(),
+    // Tanpa payment gateway: tunai di tempat, atau transfer/QRIS langsung ke penyedia.
+    payment_method: z
+      .enum(['cod', 'transfer', 'qris'], 'Metode pembayaran: cod, transfer, atau qris.')
+      .optional(),
   })
   .superRefine((data, ctx) => {
     if (data.service_mode === 'at_customer') {
-      for (const field of ['location_area', 'location_address']) {
-        if (!data[field]) {
+      // Titik pin wajib supaya penyedia bisa bernavigasi ke lokasi pelanggan.
+      for (const field of ['location_area', 'location_address', 'location_lat']) {
+        if (data[field] === undefined || data[field] === '') {
           ctx.addIssue({
             code: 'custom',
             path: [field],
-            message: 'Wajib diisi untuk layanan di lokasi customer.',
+            message:
+              field === 'location_lat'
+                ? 'Pilih titik lokasi di peta (pin) untuk layanan di lokasi customer.'
+                : 'Wajib diisi untuk layanan di lokasi customer.',
           });
         }
       }
@@ -241,7 +273,13 @@ const reviewSchema = z.object({
 
 const reviewExists = () => new ApiError(409, 'CONFLICT', 'Pesanan ini sudah diberi ulasan.');
 
-function createBookingsRouter({ bookings, reviews, users, now = () => new Date() }) {
+function createBookingsRouter({
+  bookings,
+  reviews,
+  users,
+  paymentAccounts,
+  now = () => new Date(),
+}) {
   const router = express.Router();
   router.use(requireAuth, requireActiveUser({ users }));
 
@@ -340,6 +378,20 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
       );
     }
 
+    // Transfer/QRIS hanya bisa dipilih jika penyedia sudah mengisi tujuan pembayarannya.
+    const paymentMethod = body.payment_method ?? 'cod';
+    if (paymentMethod !== 'cod') {
+      const accounts = await paymentAccounts.listByProvider(service.provider_id);
+      if (!accounts.some((account) => ACCOUNT_TYPES_FOR[paymentMethod].includes(account.type))) {
+        throw fieldError(
+          'payment_method',
+          paymentMethod === 'qris'
+            ? 'Penyedia jasa ini belum menyediakan QRIS. Pilih bayar di tempat.'
+            : 'Penyedia jasa ini belum menyediakan rekening transfer. Pilih bayar di tempat.',
+        );
+      }
+    }
+
     const atCustomer = body.service_mode === 'at_customer';
     const unitPrice = Number(service.price_amount);
     const booking = await bookings.create(
@@ -359,6 +411,7 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
         unitPrice,
         quantity,
         estimatedTotal: Math.round(unitPrice * quantity),
+        paymentMethod,
       },
       { changedBy: req.auth.userId },
     );
@@ -389,8 +442,65 @@ function createBookingsRouter({ bookings, reviews, users, now = () => new Date()
   // B3 GET /bookings/:id
   router.get('/:id', async (req, res) => {
     const { row, viewer } = await loadForViewer(req);
-    return sendSuccess(res, toBooking(row, viewer));
+    return sendSuccess(res, toBooking(row, viewer, await accountsFor(row, viewer)));
   });
+
+  /**
+   * Tujuan transfer/QRIS penyedia untuk pelanggan pemilik pesanan non-tunai yang belum lunas,
+   * hanya saat pesanan diterima/berjalan (sama dengan aturan buka-tutup kontak).
+   */
+  async function accountsFor(row, viewer) {
+    const method = row.payment_method ?? 'cod';
+    if (
+      viewer !== 'customer' ||
+      method === 'cod' ||
+      row.payment_status === 'paid' ||
+      !CONTACT_OPEN.has(row.status)
+    ) {
+      return {};
+    }
+    const accounts = await paymentAccounts.listByProvider(row.provider_id);
+    return {
+      paymentAccounts: accounts
+        .filter((account) => ACCOUNT_TYPES_FOR[method].includes(account.type))
+        .map(({ id, type, provider_name, account_number, account_holder, qris_image_url }) => ({
+          id,
+          type,
+          provider_name,
+          account_number,
+          account_holder,
+          qris_image_url,
+        })),
+    };
+  }
+
+  // P1 POST /bookings/:id/confirm-payment: penyedia menandai pembayaran sudah diterima
+  // (tunai, transfer, atau QRIS). Bisa sejak pesanan diterima sampai sesudah selesai.
+  const confirmPayment = async (req, res) => {
+    const { row, viewer } = await loadForViewer(req);
+    if (viewer !== 'provider') {
+      throw new ApiError(
+        403,
+        'FORBIDDEN',
+        'Hanya penyedia jasa yang bisa mengonfirmasi pembayaran.',
+      );
+    }
+    if (!['accepted', 'in_progress', 'completed'].includes(row.status)) {
+      throw new ApiError(
+        409,
+        'INVALID_TRANSITION',
+        `Pembayaran pesanan yang ${STATUS_LABELS[row.status]} tidak bisa dikonfirmasi.`,
+      );
+    }
+    const alreadyPaid = () =>
+      new ApiError(409, 'CONFLICT', 'Pembayaran pesanan ini sudah dikonfirmasi.');
+    if (row.payment_status === 'paid') throw alreadyPaid();
+    const updated = await bookings.markPaid(row.id);
+    if (!updated) throw alreadyPaid();
+    return sendSuccess(res, toBooking(updated, viewer));
+  };
+  router.post('/:id/confirm-payment', confirmPayment);
+  router.put('/:id/confirm-payment', confirmPayment);
 
   // R1 POST /bookings/:id/reviews (issue #13) dan /bookings/:id/review (api-contract.md)
   const reviewHandler = async (req, res) => {

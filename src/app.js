@@ -15,6 +15,7 @@ const bookingRepository = require('./repositories/bookingRepository');
 const reviewRepository = require('./repositories/reviewRepository');
 const adminRepository = require('./repositories/adminRepository');
 const chatRepository = require('./repositories/chatRepository');
+const paymentAccountRepository = require('./repositories/paymentAccountRepository');
 const defaultMailer = require('./services/mailer');
 const { createCloudinary } = require('./services/cloudinary');
 const { createCache } = require('./services/cache');
@@ -41,6 +42,7 @@ function createApp({
   reviews = reviewRepository,
   admin = adminRepository,
   chat = chatRepository,
+  paymentAccounts = paymentAccountRepository,
   // Penghubung ke Socket.io; server.js memasang io ke hub yang sama (src/realtime/chatSocket.js).
   chatHub = createChatHub(),
   mailer = defaultMailer,
@@ -80,7 +82,8 @@ function createApp({
   // Endpoint upload gambar memakai parser JSON sendiri dengan batas lebih besar
   // (src/routes/imageUpload.js); endpoint lain tetap dibatasi 1 MB.
   const jsonBody = express.json({ limit: '1mb' });
-  const uploadPaths = /^\/api\/v1\/(provider\/(photo|portfolio)|me\/photo)\/?$/;
+  const uploadPaths =
+    /^\/api\/v1\/(provider\/(photo|portfolio|ktp|payment-accounts)|me\/photo)\/?$/;
   app.use((req, res, next) => (uploadPaths.test(req.path) ? next() : jsonBody(req, res, next)));
   app.use(cookieParser());
 
@@ -128,6 +131,7 @@ function createApp({
       reviews,
       admin,
       chat,
+      paymentAccounts,
       chatHub,
       mailer,
       cloudinary,

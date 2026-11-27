@@ -10,6 +10,7 @@ const COLUMNS = `b.id, b.code, b.status, b.customer_id, b.provider_id, b.service
   b.scheduled_date, b.start_time, b.service_mode, b.location_area, b.location_address,
   b.location_lat, b.location_lng, b.customer_note, b.pricing_type_snapshot,
   b.unit_price_snapshot, b.quantity, b.estimated_total, b.actual_quantity, b.final_total,
+  b.payment_method, b.payment_status, b.paid_at,
   b.cancelled_by, b.status_reason, b.created_at, b.updated_at,
   sv.title AS service_title,
   c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
@@ -107,8 +108,9 @@ async function create(booking, { changedBy }) {
           `INSERT INTO bookings
              (id, code, customer_id, provider_id, service_id, scheduled_date, start_time,
               service_mode, location_area, location_address, location_lat, location_lng,
-              customer_note, pricing_type_snapshot, unit_price_snapshot, quantity, estimated_total)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              customer_note, pricing_type_snapshot, unit_price_snapshot, quantity, estimated_total,
+              payment_method)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             generateCode(),
@@ -127,6 +129,7 @@ async function create(booking, { changedBy }) {
             booking.unitPrice,
             booking.quantity,
             booking.estimatedTotal,
+            booking.paymentMethod ?? 'cod',
           ],
         );
         break;
@@ -314,7 +317,22 @@ async function cancelExpiredRequested({ createdBefore, reason }) {
   return ids;
 }
 
+/**
+ * Menandai pembayaran lunas (P1). Dicek ulang di UPDATE supaya dua konfirmasi bersamaan
+ * tidak sama-sama berhasil. Mengembalikan booking terbaru, atau null jika tidak berubah.
+ */
+async function markPaid(id) {
+  const [result] = await db.getPool().query(
+    `UPDATE bookings SET payment_status = 'paid', paid_at = CURRENT_TIMESTAMP(6)
+     WHERE id = ? AND payment_status = 'unpaid'
+       AND status IN ('accepted', 'in_progress', 'completed')`,
+    [id],
+  );
+  return result.affectedRows > 0 ? findById(id) : null;
+}
+
 module.exports = {
+  markPaid,
   findBookableService,
   listSlotsForDay,
   findProviderProfileId,
