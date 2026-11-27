@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const request = require('supertest');
 const createApp = require('../src/app');
 const { signToken } = require('../src/utils/token');
+const { createCloudinary } = require('../src/services/cloudinary');
 
 const admin = {
   id: randomUUID(),
@@ -59,14 +60,26 @@ function fakeAdmin() {
     verification_status: 'pending',
     address_detail: 'Jl. A',
     lat: -6.2,
+    ktp_public_id: 'djc/ktp/complete/ktp1',
+    ktp_uploaded_at: new Date('2026-11-27T01:00:00Z'),
   };
   const noLocation = {
     id: randomUUID(),
     verification_status: 'pending',
     address_detail: null,
     lat: null,
+    ktp_public_id: 'djc/ktp/nolocation/ktp2',
+    ktp_uploaded_at: new Date('2026-11-27T01:00:00Z'),
   };
-  profiles.set(complete.id, complete).set(noLocation.id, noLocation);
+  const noKtp = {
+    id: randomUUID(),
+    verification_status: 'pending',
+    address_detail: 'Jl. B',
+    lat: -6.3,
+    ktp_public_id: null,
+    ktp_uploaded_at: null,
+  };
+  profiles.set(complete.id, complete).set(noLocation.id, noLocation).set(noKtp.id, noKtp);
   const review = { id: randomUUID(), provider_id: complete.id, rating: 1, is_hidden: false };
   reviews.set(review.id, review);
   return {
@@ -79,6 +92,7 @@ function fakeAdmin() {
       actions,
       complete,
       noLocation,
+      noKtp,
       review,
       created: [],
       async dashboard() {
@@ -114,6 +128,8 @@ function fakeAdmin() {
               city: 'Kota Bekasi',
               district: null,
               has_location: 1,
+              has_ktp: 1,
+              ktp_uploaded_at: '2026-11-27T01:00:00.000Z',
               verification_status: 'pending',
               verified_at: null,
               rating_avg: '0.0',
@@ -213,6 +229,9 @@ function fakeAdmin() {
       async findProviderProfile(id) {
         return profiles.get(id) ?? null;
       },
+      async logKtpView({ adminId, profileId }) {
+        actions.push({ action: 'view_provider_ktp', adminId, profileId });
+      },
       async createProvider(input) {
         if ([...userRows.values()].some((u) => u.email === input.email)) {
           throw Object.assign(new Error('Duplicate'), { code: 'ER_DUP_ENTRY' });
@@ -256,7 +275,13 @@ function fakeAdmin() {
 
 function setup() {
   const { users, repo } = fakeAdmin();
-  return { app: createApp({ users, admin: repo }), repo };
+  const cloudinary = createCloudinary({
+    config: { cloudName: 'demo', apiKey: 'key', apiSecret: 'secret' },
+    fetchImpl: async () => {
+      throw new Error('Cloudinary tidak dipanggil di tes admin');
+    },
+  });
+  return { app: createApp({ users, admin: repo, cloudinary }), repo };
 }
 
 test('endpoint admin: 401 tanpa token, 403 untuk customer/provider, 403 admin suspended saat menulis', async () => {
@@ -378,6 +403,39 @@ test('verifikasi mitra: verified butuh alamat+koordinat, rejected wajib catatan,
   assert.equal((await verify(repo.complete.id, { status: 'pending' })).status, 400);
 });
 
+test('verifikasi mitra ditolak tanpa foto KTP; admin membuka KTP lewat URL bertanda tangan', async () => {
+  const { app, repo } = setup();
+  const noKtp = await request(app)
+    .put(`/api/v1/admin/providers/${repo.noKtp.id}/verify`)
+    .set('Authorization', bearer(admin))
+    .send({ status: 'verified' });
+  assert.equal(noKtp.status, 400);
+  assert.match(noKtp.body.error.message, /foto KTP/);
+
+  const ktp = await request(app)
+    .get(`/api/v1/admin/providers/${repo.complete.id}/ktp`)
+    .set('Authorization', bearer(admin));
+  assert.equal(ktp.status, 200);
+  assert.match(
+    ktp.body.data.url,
+    /^https:\/\/res\.cloudinary\.com\/demo\/image\/authenticated\/s--[\w-]{8}--\/djc\/ktp\/complete\/ktp1\.webp$/,
+  );
+  assert.deepEqual(repo.actions.at(-1), {
+    action: 'view_provider_ktp',
+    adminId: admin.id,
+    profileId: repo.complete.id,
+  });
+
+  const missing = await request(app)
+    .get(`/api/v1/admin/providers/${repo.noKtp.id}/ktp`)
+    .set('Authorization', bearer(admin));
+  assert.equal(missing.status, 404);
+  const asProvider = await request(app)
+    .get(`/api/v1/admin/providers/${repo.complete.id}/ktp`)
+    .set('Authorization', bearer(provider));
+  assert.equal(asProvider.status, 403);
+});
+
 test('moderasi ulasan: sembunyikan wajib alasan, tampilkan lagi, status sama 409', async () => {
   const { app, repo } = setup();
   const moderate = (body) =>
@@ -454,6 +512,8 @@ test('GET /admin/providers: daftar mitra dengan nomor alumni, filter status, dan
     city: 'Kota Bekasi',
     district: null,
     has_location: true,
+    has_ktp: true,
+    ktp_uploaded_at: '2026-11-27T01:00:00.000Z',
     verification_status: 'pending',
     verified_at: null,
     rating_avg: 0,

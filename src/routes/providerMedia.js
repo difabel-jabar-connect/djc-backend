@@ -14,6 +14,7 @@ const imageAlt = z
   .max(250, 'Teks alternatif gambar maksimal 250 karakter.');
 
 const photoSchema = z.object({ image, image_alt: imageAlt });
+const ktpSchema = z.object({ image });
 
 const portfolioSchema = z.object({
   image,
@@ -53,12 +54,12 @@ function createProviderMediaRouter({ providers, users, cloudinary }) {
   }
 
   // Validasi (termasuk teks alternatif) selesai sebelum gambar dikirim ke Cloudinary.
-  async function upload(dataUri, folder) {
+  async function upload(dataUri, folder, type) {
     if (!cloudinary.configured) {
       throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Upload gambar belum diaktifkan.');
     }
     try {
-      return await cloudinary.uploadImage({ dataUri, folder });
+      return await cloudinary.uploadImage({ dataUri, folder, ...(type ? { type } : {}) });
     } catch (error) {
       if (!env.isTest) console.error(`[cloudinary] ${error.message}`);
       throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Upload gambar gagal. Silakan coba lagi.');
@@ -72,6 +73,24 @@ function createProviderMediaRouter({ providers, users, cloudinary }) {
     await providers.updatePhoto(profile.id, { url: uploaded.url, alt: body.image_alt });
     if (profile.photo_url !== uploaded.url) await discardImage(cloudinary, profile.photo_url);
     return sendSuccess(res, { photo_url: uploaded.url, photo_alt: body.image_alt });
+  });
+
+  // PUT /provider/ktp: foto KTP untuk verifikasi admin. Disimpan privat (`authenticated`),
+  // jadi respons hanya berisi waktu unggah, bukan URL gambarnya. KTP lama dihapus.
+  router.put('/ktp', uploadJson, async (req, res) => {
+    const body = validate(ktpSchema, req.body);
+    const profile = await ownProfile(req);
+    const previous = await providers.findKtpPublicId(profile.id);
+    const uploaded = await upload(body.image, `djc/ktp/${profile.id}`, 'authenticated');
+    const uploadedAt = await providers.updateKtp(profile.id, uploaded.publicId);
+    if (previous && previous !== uploaded.publicId) {
+      try {
+        await cloudinary.destroyAuthenticated(previous);
+      } catch (error) {
+        if (!env.isTest) console.warn(`[cloudinary] ${error.message}`);
+      }
+    }
+    return sendSuccess(res, { has_ktp: true, ktp_uploaded_at: uploadedAt });
   });
 
   router.get('/portfolio', async (req, res) => {

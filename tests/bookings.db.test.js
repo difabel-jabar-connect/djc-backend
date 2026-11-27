@@ -130,6 +130,8 @@ test(
         quantity: 3,
         location_area: 'Coblong, Kota Bandung',
         location_address: 'Jl. Uji Customer No. 3',
+        location_lat: -6.24,
+        location_lng: 106.98,
       });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const id = created.body.data.id;

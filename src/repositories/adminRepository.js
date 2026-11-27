@@ -82,6 +82,7 @@ async function listProviders({ status, q, page, limit }) {
   return paginate({
     columns: `p.id, p.user_id, p.display_name, p.alumni_reg_no, p.city, p.district,
               p.address_detail IS NOT NULL AND p.lat IS NOT NULL AS has_location,
+              p.ktp_public_id IS NOT NULL AS has_ktp, p.ktp_uploaded_at,
               p.verification_status, p.verified_at, p.rating_avg, p.rating_count, p.created_at,
               u.full_name, u.email, u.phone, u.status AS user_status`,
     from: `FROM provider_profiles p JOIN users u ON u.id = p.user_id ${whereClause(conditions)}`,
@@ -151,6 +152,7 @@ async function listBookings({ statuses, q, dateFrom, dateTo, page, limit }) {
   return paginate({
     columns: `b.id, b.code, b.status, b.scheduled_date, b.start_time, b.service_mode,
               b.location_area, b.pricing_type_snapshot, b.estimated_total, b.final_total,
+              b.payment_method, b.payment_status, b.paid_at,
               b.cancelled_by, b.status_reason, b.created_at, b.updated_at,
               sv.id AS service_id, sv.title AS service_title,
               c.id AS category_id, c.name AS category_name,
@@ -234,7 +236,8 @@ async function findUser(id) {
 
 async function findProviderProfile(id) {
   const [rows] = await db.getPool().query(
-    `SELECT p.id, p.user_id, p.display_name, p.verification_status, p.address_detail, p.lat
+    `SELECT p.id, p.user_id, p.display_name, p.verification_status, p.address_detail, p.lat,
+            p.ktp_public_id, p.ktp_uploaded_at
      FROM provider_profiles p WHERE p.id = ? LIMIT 1`,
     [id],
   );
@@ -304,6 +307,16 @@ async function setVerification({ adminId, profileId, status, note }) {
     [profileId],
   );
   return rows[0];
+}
+
+/** Mencatat bahwa admin membuka foto KTP mitra (data pribadi, setiap akses diaudit). */
+async function logKtpView({ adminId, profileId }) {
+  await logAdminAction(db.getPool(), {
+    adminId,
+    action: 'view_provider_ktp',
+    targetType: 'provider_profile',
+    targetId: profileId,
+  });
 }
 
 async function findReview(id) {
@@ -384,6 +397,7 @@ async function setUserStatus({ adminId, user, status, reason }) {
 }
 
 module.exports = {
+  logKtpView,
   dashboard,
   listProviders,
   listReviews,

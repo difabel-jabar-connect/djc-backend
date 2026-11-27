@@ -98,7 +98,7 @@ async function findOwnByUserId(userId) {
     `SELECT p.id, p.display_name, p.photo_url, p.photo_alt, p.bio, p.communication_prefs,
             p.disability_type, p.alumni_reg_no, p.address_detail, p.city, p.district,
             p.lat, p.lng, p.public_lat, p.public_lng, p.service_radius_km,
-            p.verification_status, p.rating_avg, p.rating_count, u.phone
+            p.verification_status, p.rating_avg, p.rating_count, p.ktp_uploaded_at, u.phone
      FROM provider_profiles p JOIN users u ON u.id = p.user_id
      WHERE p.user_id = ? LIMIT 1`,
     [userId],
@@ -208,6 +208,28 @@ async function updatePhoto(profileId, { url, alt }) {
     ]);
 }
 
+/** public_id foto KTP (Cloudinary `authenticated`) milik profil ini, atau null. */
+async function findKtpPublicId(profileId) {
+  const [rows] = await db
+    .getPool()
+    .query('SELECT ktp_public_id FROM provider_profiles WHERE id = ? LIMIT 1', [profileId]);
+  return rows[0]?.ktp_public_id ?? null;
+}
+
+/** Menyimpan foto KTP baru. Mengembalikan waktu unggahnya. */
+async function updateKtp(profileId, publicId) {
+  const pool = db.getPool();
+  await pool.query(
+    `UPDATE provider_profiles SET ktp_public_id = ?, ktp_uploaded_at = CURRENT_TIMESTAMP(6)
+     WHERE id = ?`,
+    [publicId, profileId],
+  );
+  const [rows] = await pool.query('SELECT ktp_uploaded_at FROM provider_profiles WHERE id = ?', [
+    profileId,
+  ]);
+  return rows[0]?.ktp_uploaded_at ?? null;
+}
+
 const PORTFOLIO_COLUMNS = 'id, title, description, item_type, image_url, image_alt, sort_order';
 
 async function listPortfolio(profileId) {
@@ -257,6 +279,8 @@ module.exports = {
   listAvailability,
   replaceAvailability,
   updatePhoto,
+  findKtpPublicId,
+  updateKtp,
   listPortfolio,
   createPortfolioItem,
   deletePortfolioItem,

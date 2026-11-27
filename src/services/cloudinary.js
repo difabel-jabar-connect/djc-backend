@@ -32,13 +32,16 @@ function createCloudinary({
   /**
    * Mengunggah gambar (data URI base64) ke folder `folder`. Mengembalikan URL HTTPS
    * dan metadata, atau melempar error berisi alasan (tanpa secret) untuk log server.
+   * `type: 'authenticated'` untuk dokumen privat (KTP): gambarnya hanya bisa dibuka lewat
+   * URL bertanda tangan dari authenticatedUrl().
    */
-  async function uploadImage({ dataUri, folder }) {
+  async function uploadImage({ dataUri, folder, type }) {
     const params = {
       folder,
       format: 'webp',
       timestamp: Math.floor(Date.now() / 1000),
       transformation: TRANSFORMATION,
+      ...(type ? { type } : {}),
     };
     const body = new URLSearchParams({
       ...params,
@@ -107,7 +110,55 @@ function createCloudinary({
     return result.result === 'ok';
   }
 
-  return { configured, uploadImage, destroyImage, publicIdFromUrl };
+  /**
+   * URL bertanda tangan untuk gambar `authenticated` (WebP), mis. foto KTP. Tanda tangan
+   * Cloudinary: 8 karakter pertama base64url(SHA-1(<public_id>.webp + API secret)).
+   */
+  function authenticatedUrl(publicId) {
+    if (!configured || !publicId) return null;
+    const source = `${publicId}.webp`;
+    const signature = crypto
+      .createHash('sha1')
+      .update(source + config.apiSecret)
+      .digest('base64url')
+      .slice(0, 8);
+    return `https://res.cloudinary.com/${config.cloudName}/image/authenticated/s--${signature}--/${source}`;
+  }
+
+  /** Menghapus gambar `authenticated` berdasarkan public_id (mis. KTP lama yang diganti). */
+  async function destroyAuthenticated(publicId) {
+    if (!configured || typeof publicId !== 'string' || !publicId.startsWith('djc/')) return false;
+    const params = {
+      public_id: publicId,
+      timestamp: Math.floor(Date.now() / 1000),
+      type: 'authenticated',
+    };
+    const body = new URLSearchParams({
+      ...params,
+      api_key: config.apiKey,
+      signature: sign(params, config.apiSecret),
+    });
+    const res = await fetchImpl(
+      `https://api.cloudinary.com/v1_1/${encodeURIComponent(config.cloudName)}/image/destroy`,
+      { method: 'POST', body },
+    );
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok || !['ok', 'not found'].includes(result.result)) {
+      throw new Error(
+        `hapus Cloudinary gagal (${res.status} ${result.error?.message ?? ''})`.trim(),
+      );
+    }
+    return result.result === 'ok';
+  }
+
+  return {
+    configured,
+    uploadImage,
+    destroyImage,
+    publicIdFromUrl,
+    authenticatedUrl,
+    destroyAuthenticated,
+  };
 }
 
 module.exports = { createCloudinary, sign };

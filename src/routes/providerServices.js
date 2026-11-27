@@ -54,6 +54,15 @@ const updateSchema = z
     'Kirim minimal satu field yang ingin diubah.',
   );
 
+const bulkActiveSchema = z.object({
+  is_active: fields.is_active,
+  ids: z
+    .array(z.uuid('ids berisi UUID layanan.'), 'ids harus berupa daftar id layanan.')
+    .min(1, 'Pilih minimal satu layanan.')
+    .max(100, 'Maksimal 100 layanan sekaligus.')
+    .optional(),
+});
+
 const validationError = (field, message) =>
   new ApiError(400, 'VALIDATION_ERROR', 'Data yang dikirim belum valid.', [{ field, message }]);
 
@@ -101,6 +110,16 @@ function createProviderServicesRouter({ providers, services, categories, users }
   router.get('/', async (req, res) => {
     const profile = await ownProfile(req);
     return sendSuccess(res, await services.listOwn(profile.id));
+  });
+
+  // PUT /provider/services/active: "Nonaktifkan semua" / "Aktifkan semua" sekaligus, atau
+  // hanya layanan terpilih lewat `ids`. Didaftarkan sebelum PUT /:id supaya "active" tidak
+  // dianggap id layanan. Pesanan yang sudah masuk tidak ikut dibatalkan.
+  router.put('/active', async (req, res) => {
+    const body = validate(bulkActiveSchema, req.body);
+    const profile = await ownProfile(req);
+    const changed = await services.setActiveOwn(profile.id, body.is_active, body.ids);
+    return sendSuccess(res, { changed, items: await services.listOwn(profile.id) });
   });
 
   router.get('/:id', async (req, res) => {

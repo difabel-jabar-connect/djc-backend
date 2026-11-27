@@ -26,6 +26,7 @@ test('skema 14 tabel dan constraint utama', { skip }, async (t) => {
     'categories',
     'portfolio_items',
     'provider_availability',
+    'provider_payment_accounts',
     'provider_profiles',
     'provider_skills',
     'reviews',

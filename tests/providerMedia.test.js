@@ -37,6 +37,13 @@ function fakeProviders() {
     async findOwnByUserId(userId) {
       return userId === profile.user_id ? { ...profile } : null;
     },
+    async findKtpPublicId() {
+      return profile.ktp_public_id ?? null;
+    },
+    async updateKtp(profileId, publicId) {
+      Object.assign(profile, { ktp_public_id: publicId, ktp_uploaded_at: new Date() });
+      return profile.ktp_uploaded_at;
+    },
     async updatePhoto(profileId, { url, alt }) {
       assert.equal(profileId, profile.id);
       Object.assign(profile, { photo_url: url, photo_alt: alt });
@@ -78,11 +85,16 @@ function fakeCloudinary({ configured = true, fail = false } = {}) {
       destroyed.push(url);
       return true;
     },
-    async uploadImage({ dataUri, folder }) {
-      uploads.push({ dataUri, folder });
+    async destroyAuthenticated(publicId) {
+      destroyed.push(publicId);
+      return true;
+    },
+    async uploadImage({ dataUri, folder, type }) {
+      uploads.push({ dataUri, folder, type });
       if (fail) throw new Error('upload Cloudinary gagal (401 Invalid Signature)');
       return {
         url: `https://res.cloudinary.com/demo/image/upload/${folder}/${uploads.length}.webp`,
+        publicId: `${folder}/${uploads.length}`,
         bytes: 1234,
         format: 'webp',
       };
@@ -372,4 +384,52 @@ test('Cloudinary: destroyImage memakai public_id dari URL dan mengabaikan URL la
     body.signature,
     sign({ public_id: body.public_id, timestamp: body.timestamp }, 'rahasia'),
   );
+});
+
+test('PUT /provider/ktp: unggah privat (authenticated), respons tanpa URL, KTP lama dihapus', async () => {
+  const { app, providers, cloudinary } = setup();
+  const put = () =>
+    request(app).put('/api/v1/provider/ktp').set('Authorization', bearer(provider)).send({
+      image: PNG,
+    });
+
+  const first = await put();
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.data.has_ktp, true);
+  assert.ok(first.body.data.ktp_uploaded_at);
+  assert.equal(JSON.stringify(first.body).includes('cloudinary'), false, 'URL KTP tidak dikirim');
+  assert.equal(cloudinary.uploads[0].type, 'authenticated');
+  assert.equal(cloudinary.uploads[0].folder, `djc/ktp/${providers.profile.id}`);
+  const firstId = providers.profile.ktp_public_id;
+
+  await put();
+  assert.notEqual(providers.profile.ktp_public_id, firstId);
+  assert.deepEqual(cloudinary.destroyed, [firstId]);
+
+  const invalid = await request(app)
+    .put('/api/v1/provider/ktp')
+    .set('Authorization', bearer(provider))
+    .send({ image: 'bukan gambar' });
+  assert.equal(invalid.status, 400);
+  const asCustomer = await request(app)
+    .put('/api/v1/provider/ktp')
+    .set('Authorization', bearer(customer))
+    .send({ image: PNG });
+  assert.equal(asCustomer.status, 403);
+});
+
+test('Cloudinary: authenticatedUrl bertanda tangan untuk gambar privat', () => {
+  const cloud = createCloudinary({
+    config: { cloudName: 'demo', apiKey: 'key', apiSecret: 'secret' },
+  });
+  const expected = crypto
+    .createHash('sha1')
+    .update('djc/ktp/p1/abc.webp' + 'secret')
+    .digest('base64url')
+    .slice(0, 8);
+  assert.equal(
+    cloud.authenticatedUrl('djc/ktp/p1/abc'),
+    `https://res.cloudinary.com/demo/image/authenticated/s--${expected}--/djc/ktp/p1/abc.webp`,
+  );
+  assert.equal(createCloudinary({ config: {} }).authenticatedUrl('djc/ktp/p1/abc'), null);
 });

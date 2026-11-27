@@ -111,57 +111,64 @@ Aturan akun suspended mengikuti data model: tetap bisa login dan membaca data mi
 
 ## 2. Ringkasan endpoint core flow
 
-| #   | Method | Path                     | Peran                | Flow             | Status implementasi |
-| --- | ------ | ------------------------ | -------------------- | ---------------- | ------------------- |
-| H1  | GET    | `/health`                | Publik               | Monitoring       | Sudah ada           |
-| A1  | POST   | `/auth/register`         | Publik               | Akun             | Sudah ada           |
-| A2  | POST   | `/auth/login`            | Publik               | Akun             | Sudah ada           |
-| A3  | POST   | `/auth/logout`           | Login                | Akun             | Sudah ada           |
-| A4  | GET    | `/auth/me`               | Login                | Akun             | Sudah ada           |
-| A5  | POST   | `/auth/password/forgot`  | Publik               | Akun             | Sudah ada           |
-| A6  | POST   | `/auth/password/reset`   | Publik               | Akun             | Sudah ada           |
-| A7  | GET    | `/auth/google`           | Publik               | Akun             | Sudah ada           |
-| A7  | GET    | `/auth/google/callback`  | Publik (dari Google) | Akun             | Sudah ada           |
-| A8  | POST   | `/auth/google`           | Publik               | Akun             | Sudah ada           |
-| M1  | PATCH  | `/me`                    | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M2  | PUT    | `/me/password`           | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M3  | PUT    | `/me/photo`              | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M3  | DELETE | `/me/photo`              | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M4  | GET    | `/me/addresses`          | Login                | Akun Saya, Pesan | Sudah ada           |
-| M4  | POST   | `/me/addresses`          | Login (aktif)        | Akun Saya, Pesan | Sudah ada           |
-| M4  | PATCH  | `/me/addresses/:id`      | Login (aktif)        | Akun Saya        | Sudah ada           |
-| M4  | DELETE | `/me/addresses/:id`      | Login (aktif)        | Akun Saya        | Sudah ada           |
-| C1  | GET    | `/categories`            | Publik               | Search           | Sudah ada           |
-| C2  | POST   | `/admin/categories`      | Admin                | Kelola kategori  | Sudah ada           |
-| C3  | PUT    | `/admin/categories/:id`  | Admin                | Kelola kategori  | Sudah ada           |
-| P1  | GET    | `/providers`             | Publik               | Search           | Proposed            |
-| P2  | GET    | `/providers/map`         | Publik               | Location         | Proposed            |
-| P3  | GET    | `/providers/:id`         | Publik               | Provider         | Sudah ada           |
-| P5  | GET    | `/provider/profile`      | Provider             | Profil provider  | Sudah ada           |
-| P5  | PUT    | `/provider/profile`      | Provider             | Profil provider  | Sudah ada           |
-| P6  | GET    | `/provider/availability` | Provider             | Profil provider  | Sudah ada           |
-| P6  | PUT    | `/provider/availability` | Provider             | Profil provider  | Sudah ada           |
-| P7  | PUT    | `/provider/photo`        | Provider             | Profil provider  | Sudah ada           |
-| P8  | GET    | `/provider/portfolio`    | Provider             | Profil provider  | Sudah ada           |
-| P8  | POST   | `/provider/portfolio`    | Provider             | Profil provider  | Sudah ada           |
-| P8  | DELETE | /provider/portfolio/:id  | Provider             | Profil provider  | Sudah ada           |
-| P9  | GET    | `/provider/services`     | Provider             | Katalog provider | Sudah ada           |
-| P9  | POST   | `/provider/services`     | Provider             | Katalog provider | Sudah ada           |
-| P9  | GET    | /provider/services/:id   | Provider             | Katalog provider | Sudah ada           |
-| P9  | PUT    | /provider/services/:id   | Provider             | Katalog provider | Sudah ada           |
-| P4  | GET    | `/providers/:id/reviews` | Publik               | Provider, Review | Sudah ada           |
-| P10 | GET    | `/provider/reviews`      | Provider             | Dasbor provider  | Sudah ada           |
-| L1  | GET    | `/services`              | Publik               | Search           | Sudah ada           |
-| L2  | GET    | `/services/:id`          | Publik               | Search, Booking  | Sudah ada           |
-| B1  | POST   | `/bookings`              | Customer             | Booking          | Sudah ada           |
-| B2  | GET    | `/bookings`              | Customer, Provider   | Booking          | Sudah ada           |
-| B3  | GET    | `/bookings/:id`          | Pihak booking, Admin | Booking          | Sudah ada           |
-| S1  | POST   | `/bookings/:id/accept`   | Provider             | Status booking   | Sudah ada           |
-| S2  | POST   | `/bookings/:id/reject`   | Provider             | Status booking   | Sudah ada           |
-| S3  | POST   | `/bookings/:id/start`    | Provider             | Status booking   | Sudah ada           |
-| S4  | POST   | `/bookings/:id/complete` | Provider             | Status booking   | Sudah ada           |
-| S5  | POST   | `/bookings/:id/cancel`   | Customer, Provider   | Status booking   | Sudah ada           |
-| R1  | POST   | `/bookings/:id/review`   | Customer             | Review           | Sudah ada           |
+| #    | Method | Path                            | Peran                | Flow             | Status implementasi |
+| ---- | ------ | ------------------------------- | -------------------- | ---------------- | ------------------- |
+| H1   | GET    | `/health`                       | Publik               | Monitoring       | Sudah ada           |
+| A1   | POST   | `/auth/register`                | Publik               | Akun             | Sudah ada           |
+| A2   | POST   | `/auth/login`                   | Publik               | Akun             | Sudah ada           |
+| A3   | POST   | `/auth/logout`                  | Login                | Akun             | Sudah ada           |
+| A4   | GET    | `/auth/me`                      | Login                | Akun             | Sudah ada           |
+| A5   | POST   | `/auth/password/forgot`         | Publik               | Akun             | Sudah ada           |
+| A6   | POST   | `/auth/password/reset`          | Publik               | Akun             | Sudah ada           |
+| A7   | GET    | `/auth/google`                  | Publik               | Akun             | Sudah ada           |
+| A7   | GET    | `/auth/google/callback`         | Publik (dari Google) | Akun             | Sudah ada           |
+| A8   | POST   | `/auth/google`                  | Publik               | Akun             | Sudah ada           |
+| M1   | PATCH  | `/me`                           | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M2   | PUT    | `/me/password`                  | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M3   | PUT    | `/me/photo`                     | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M3   | DELETE | `/me/photo`                     | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M4   | GET    | `/me/addresses`                 | Login                | Akun Saya, Pesan | Sudah ada           |
+| M4   | POST   | `/me/addresses`                 | Login (aktif)        | Akun Saya, Pesan | Sudah ada           |
+| M4   | PATCH  | `/me/addresses/:id`             | Login (aktif)        | Akun Saya        | Sudah ada           |
+| M4   | DELETE | `/me/addresses/:id`             | Login (aktif)        | Akun Saya        | Sudah ada           |
+| C1   | GET    | `/categories`                   | Publik               | Search           | Sudah ada           |
+| C2   | POST   | `/admin/categories`             | Admin                | Kelola kategori  | Sudah ada           |
+| C3   | PUT    | `/admin/categories/:id`         | Admin                | Kelola kategori  | Sudah ada           |
+| P1   | GET    | `/providers`                    | Publik               | Search           | Proposed            |
+| P2   | GET    | `/providers/map`                | Publik               | Location         | Proposed            |
+| P3   | GET    | `/providers/:id`                | Publik               | Provider         | Sudah ada           |
+| P5   | GET    | `/provider/profile`             | Provider             | Profil provider  | Sudah ada           |
+| P5   | PUT    | `/provider/profile`             | Provider             | Profil provider  | Sudah ada           |
+| P6   | GET    | `/provider/availability`        | Provider             | Profil provider  | Sudah ada           |
+| P6   | PUT    | `/provider/availability`        | Provider             | Profil provider  | Sudah ada           |
+| P7   | PUT    | `/provider/photo`               | Provider             | Profil provider  | Sudah ada           |
+| P8   | GET    | `/provider/portfolio`           | Provider             | Profil provider  | Sudah ada           |
+| P8   | POST   | `/provider/portfolio`           | Provider             | Profil provider  | Sudah ada           |
+| P8   | DELETE | /provider/portfolio/:id         | Provider             | Profil provider  | Sudah ada           |
+| P9   | GET    | `/provider/services`            | Provider             | Katalog provider | Sudah ada           |
+| P9   | POST   | `/provider/services`            | Provider             | Katalog provider | Sudah ada           |
+| P9   | GET    | /provider/services/:id          | Provider             | Katalog provider | Sudah ada           |
+| P9   | PUT    | /provider/services/:id          | Provider             | Katalog provider | Sudah ada           |
+| P9   | PUT    | `/provider/services/active`     | Provider             | Katalog provider | Sudah ada           |
+| P11  | GET    | `/provider/payment-accounts`    | Provider             | Pembayaran       | Sudah ada           |
+| P11  | POST   | `/provider/payment-accounts`    | Provider             | Pembayaran       | Sudah ada           |
+| P11  | DELETE | /provider/payment-accounts/:id  | Provider             | Pembayaran       | Sudah ada           |
+| P12  | PUT    | `/provider/ktp`                 | Provider             | Verifikasi mitra | Sudah ada           |
+| P4   | GET    | `/providers/:id/reviews`        | Publik               | Provider, Review | Sudah ada           |
+| P10  | GET    | `/provider/reviews`             | Provider             | Dasbor provider  | Sudah ada           |
+| L1   | GET    | `/services`                     | Publik               | Search           | Sudah ada           |
+| L2   | GET    | `/services/:id`                 | Publik               | Search, Booking  | Sudah ada           |
+| B1   | POST   | `/bookings`                     | Customer             | Booking          | Sudah ada           |
+| B2   | GET    | `/bookings`                     | Customer, Provider   | Booking          | Sudah ada           |
+| B3   | GET    | `/bookings/:id`                 | Pihak booking, Admin | Booking          | Sudah ada           |
+| S1   | POST   | `/bookings/:id/accept`          | Provider             | Status booking   | Sudah ada           |
+| S2   | POST   | `/bookings/:id/reject`          | Provider             | Status booking   | Sudah ada           |
+| S3   | POST   | `/bookings/:id/start`           | Provider             | Status booking   | Sudah ada           |
+| S4   | POST   | `/bookings/:id/complete`        | Provider             | Status booking   | Sudah ada           |
+| S5   | POST   | `/bookings/:id/cancel`          | Customer, Provider   | Status booking   | Sudah ada           |
+| PY1  | POST   | `/bookings/:id/confirm-payment` | Provider             | Pembayaran       | Sudah ada           |
+| AD12 | GET    | `/admin/providers/:id/ktp`      | Admin                | Verifikasi mitra | Sudah ada           |
+| R1   | POST   | `/bookings/:id/review`          | Customer             | Review           | Sudah ada           |
 
 Semua path di bawah ditulis relatif terhadap `/api/v1`.
 
@@ -905,6 +912,34 @@ Layanan tampil di L1, L2, dan P3 hanya jika layanan dan kategorinya aktif serta 
 
 Error: `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `403 ACCOUNT_SUSPENDED`, `404 NOT_FOUND` (profil belum ada, atau layanan bukan milik provider ini).
 
+#### P9b `PUT /provider/services/active` (nonaktifkan / aktifkan semua)
+
+Body `{ "is_active": false }` mengubah semua layanan milik provider sekaligus; tambahkan `"ids": ["…"]` (1–100 uuid) untuk layanan terpilih saja. Id milik provider lain diabaikan. Pesanan yang sudah masuk tidak ikut dibatalkan.
+
+Sukses `200`: `{ "changed": 3, "items": [ …daftar layanan seperti GET /provider/services ] }`.
+
+### P11 `/provider/payment-accounts` (rekening, e-wallet, QRIS)
+
+Tujuan pembayaran milik provider untuk metode `transfer`/`qris` (bagian 7a). Paling banyak 5. Tidak pernah tampil di profil publik.
+
+`POST` body salah satu dari:
+
+| `type`    | Field lain                                                                                                       |
+| --------- | ---------------------------------------------------------------------------------------------------------------- |
+| `bank`    | `provider_name` (mis. "BCA", 2–50), `account_number` (6–30 angka; spasi/strip dibuang), `account_holder` (2–100) |
+| `ewallet` | sama dengan `bank` (mis. "DANA", nomor HP)                                                                       |
+| `qris`    | `image` (data URI seperti P7, maks 5 MB), `provider_name` opsional (default "QRIS")                              |
+
+Sukses `201`: objek `{ id, type, provider_name, account_number, account_holder, qris_image_url, created_at, updated_at }`. `GET` mengembalikan daftar; `DELETE /provider/payment-accounts/:id` menghapus milik sendiri (gambar QRIS ikut dihapus dari Cloudinary). Error: `400 VALIDATION_ERROR`, `404 NOT_FOUND`, `409 CONFLICT` (sudah 5), `503 SERVICE_UNAVAILABLE` (upload QRIS gagal).
+
+### P12 `PUT /provider/ktp`
+
+Provider mengunggah foto KTP untuk verifikasi. Body `{ "image": "data:image/jpeg;base64,…" }` (aturan gambar sama dengan P7). Gambar disimpan di Cloudinary sebagai `authenticated` (tidak bisa dibuka tanpa URL bertanda tangan); KTP lama dihapus.
+
+Sukses `200`: `{ "has_ktp": true, "ktp_uploaded_at": "…" }` (tanpa URL). `GET /provider/profile` juga berisi `ktp_uploaded_at`.
+
+Admin: `GET /admin/providers` berisi `has_ktp` dan `ktp_uploaded_at`; `GET /admin/providers/:id/ktp` (AD12) mengembalikan `{ url, uploaded_at }` dengan URL bertanda tangan, dan setiap akses dicatat `view_provider_ktp` di jejak audit. `PUT /admin/providers/:id/verify` dengan `verified` ditolak `400` jika KTP belum diunggah.
+
 ### P4 `GET /providers/:id/reviews`
 
 |             |                               |
@@ -973,8 +1008,9 @@ Request body:
 | `quantity`                     | number                         | jika hourly        | Jam, ≥ `min_hours`; selain hourly selalu 1                                                                                                                                                                                 |
 | `location_area`                | string                         | jika `at_customer` | Kecamatan dan kota                                                                                                                                                                                                         |
 | `location_address`             | string                         | jika `at_customer` | Alamat lengkap                                                                                                                                                                                                             |
-| `location_lat`, `location_lng` | number                         | tidak              | Hanya `at_customer`                                                                                                                                                                                                        |
+| `location_lat`, `location_lng` | number                         | jika `at_customer` | Titik pin peta lokasi customer; dipakai penyedia untuk navigasi (`location.navigation_url` di B3)                                                                                                                          |
 | `customer_note`                | string                         | tidak              | Maks 500 karakter                                                                                                                                                                                                          |
+| `payment_method`               | `cod` \| `transfer` \| `qris`  | tidak              | Default `cod`. `transfer` butuh rekening bank/e-wallet penyedia, `qris` butuh QRIS penyedia (P11); jika belum ada → 400 di `payment_method`                                                                                |
 
 ```json
 {
@@ -1094,6 +1130,49 @@ Admin boleh melihat detail booking mana pun (hanya baca). Error: `401 UNAUTHENTI
 **Status implementasi (BE-07):** access matrix di awal bagian 7 sudah diterapkan di B1, B2, dan B3 (daftar dan detail memakai aturan yang sama). Telepon customer dan provider, alamat customer (`location.address`, `lat`, `lng` untuk `at_customer`), dan `provider.address_detail` (untuk `at_provider`) hanya terisi untuk **lawan transaksi** saat status `accepted` atau `in_progress`; saat `requested`, `completed`, `rejected`, dan `cancelled` berisi `null`. Nama customer untuk provider: nama depan + inisial saat `requested`, nama lengkap setelah pernah `accepted`. Data milik sendiri selalu terlihat oleh pemiliknya (customer melihat alamat yang ia isi, provider melihat teleponnya sendiri). **Admin tidak melihat kontak maupun alamat** di endpoint ini (default paling aman). Endpoint publik (P3, L1, L2) tidak pernah memuat telepon atau alamat. `can_review` bernilai `true` hanya untuk customer pemilik saat status `completed` dan booking belum diulas (BE-08).
 
 ---
+
+### 7a. Pembayaran langsung ke penyedia (tanpa payment gateway)
+
+Keputusan revisi 2026-11-27: aplikasi **tidak** memakai payment gateway berlangganan (Midtrans dll). Uang tidak lewat aplikasi; pelanggan membayar langsung ke penyedia jasa, dan aplikasi hanya mencatat metode serta status lunas.
+
+| Metode     | Cara bayar                                       | Data yang dilihat pelanggan              |
+| ---------- | ------------------------------------------------ | ---------------------------------------- |
+| `cod`      | Tunai di tempat saat/sesudah layanan             | —                                        |
+| `transfer` | Transfer ke rekening bank atau e-wallet penyedia | Rekening `bank`/`ewallet` penyedia (P11) |
+| `qris`     | Scan QRIS milik penyedia                         | Gambar QRIS penyedia (P11)               |
+
+B2/B3 berisi objek `payment`:
+
+```json
+{
+  "payment": {
+    "method": "transfer",
+    "status": "unpaid",
+    "paid_at": null,
+    "accounts": [
+      {
+        "id": "…",
+        "type": "bank",
+        "provider_name": "BCA",
+        "account_number": "1234567890",
+        "account_holder": "Deni Saputra",
+        "qris_image_url": null
+      }
+    ]
+  }
+}
+```
+
+- `accounts` hanya diisi di **B3 untuk customer pemilik**, metode bukan `cod`, belum lunas, dan status `accepted`/`in_progress` (aturan buka-tutup yang sama dengan kontak). Selain itu `null`. Hanya tujuan yang cocok dengan metode yang dikirim.
+- `location.navigation_url` (B3, hanya untuk provider saat lokasi customer terbuka): link Google Maps `https://www.google.com/maps/dir/?api=1&destination=<lat>,<lng>` ke titik pin customer. Gratis, tanpa API key.
+
+#### PY1 `POST /bookings/:id/confirm-payment`
+
+Provider pemilik booking menandai pembayaran sudah diterima (tunai, transfer, atau QRIS). Body kosong. Juga tersedia sebagai `PUT`.
+
+- Boleh saat status `accepted`, `in_progress`, atau `completed`; status booking tidak berubah.
+- `payment.status` menjadi `paid` dan `paid_at` diisi.
+- Error: `403 FORBIDDEN` (bukan provider), `404 NOT_FOUND` (booking orang lain), `409 INVALID_TRANSITION` (requested/rejected/cancelled), `409 CONFLICT` ("Pembayaran pesanan ini sudah dikonfirmasi.").
 
 ## 8. Status booking
 
