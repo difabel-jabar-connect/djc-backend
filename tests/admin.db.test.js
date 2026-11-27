@@ -205,6 +205,14 @@ test(
       (await call('put', `/providers/${newProfile}/verify`, { status: 'verified' })).status,
       400,
     );
+    // Verifikasi ditolak selama foto KTP belum diunggah.
+    assert.equal(
+      (await call('put', `/providers/${ids.provider}/verify`, { status: 'verified' })).status,
+      400,
+    );
+    await knex('provider_profiles')
+      .where({ id: ids.provider })
+      .update({ ktp_public_id: 'djc/ktp/test/ktp', ktp_uploaded_at: knex.fn.now(6) });
     const verified = await call('put', `/providers/${ids.provider}/verify`, { status: 'verified' });
     assert.equal(verified.status, 200);
     const verifiedRow = await knex('provider_profiles').where({ id: ids.provider }).first();
