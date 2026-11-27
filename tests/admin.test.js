@@ -273,13 +273,15 @@ function fakeAdmin() {
   };
 }
 
-function setup() {
+function setup({ fetchImpl } = {}) {
   const { users, repo } = fakeAdmin();
   const cloudinary = createCloudinary({
     config: { cloudName: 'demo', apiKey: 'key', apiSecret: 'secret' },
-    fetchImpl: async () => {
-      throw new Error('Cloudinary tidak dipanggil di tes admin');
-    },
+    fetchImpl:
+      fetchImpl ??
+      (async () => {
+        throw new Error('Cloudinary tidak dipanggil di tes admin');
+      }),
   });
   return { app: createApp({ users, admin: repo, cloudinary }), repo };
 }
@@ -403,8 +405,15 @@ test('verifikasi mitra: verified butuh alamat+koordinat, rejected wajib catatan,
   assert.equal((await verify(repo.complete.id, { status: 'pending' })).status, 400);
 });
 
-test('verifikasi mitra ditolak tanpa foto KTP; admin membuka KTP lewat URL bertanda tangan', async () => {
-  const { app, repo } = setup();
+test('verifikasi mitra ditolak tanpa foto KTP; admin membuka KTP lewat backend, bukan URL', async () => {
+  const imageBytes = Buffer.from([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]);
+  const fetched = [];
+  const { app, repo } = setup({
+    fetchImpl: async (url) => {
+      fetched.push(url);
+      return new Response(imageBytes, { headers: { 'content-type': 'image/webp' } });
+    },
+  });
   const noKtp = await request(app)
     .put(`/api/v1/admin/providers/${repo.noKtp.id}/verify`)
     .set('Authorization', bearer(admin))
@@ -414,12 +423,24 @@ test('verifikasi mitra ditolak tanpa foto KTP; admin membuka KTP lewat URL berta
 
   const ktp = await request(app)
     .get(`/api/v1/admin/providers/${repo.complete.id}/ktp`)
-    .set('Authorization', bearer(admin));
+    .set('Authorization', bearer(admin))
+    .buffer(true)
+    .parse((res, done) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => done(null, Buffer.concat(chunks)));
+    });
   assert.equal(ktp.status, 200);
+  assert.match(ktp.headers['content-type'], /^image\//);
+  assert.match(ktp.headers['cache-control'], /no-store/);
+  assert.equal(ktp.headers['x-content-type-options'], 'nosniff');
+  assert.deepEqual(ktp.body, imageBytes);
   assert.match(
-    ktp.body.data.url,
+    fetched[0],
     /^https:\/\/res\.cloudinary\.com\/demo\/image\/authenticated\/s--[\w-]{8}--\/djc\/ktp\/complete\/ktp1\.webp$/,
   );
+  assert.ok(!JSON.stringify(ktp.headers).includes('res.cloudinary.com'));
+  assert.ok(!ktp.body.toString('latin1').includes('res.cloudinary.com'));
   assert.deepEqual(repo.actions.at(-1), {
     action: 'view_provider_ktp',
     adminId: admin.id,
@@ -434,6 +455,20 @@ test('verifikasi mitra ditolak tanpa foto KTP; admin membuka KTP lewat URL berta
     .get(`/api/v1/admin/providers/${repo.complete.id}/ktp`)
     .set('Authorization', bearer(provider));
   assert.equal(asProvider.status, 403);
+});
+
+test('GET /admin/providers/:id/ktp: 503 jika Cloudinary gagal, tanpa catatan audit', async () => {
+  const { app, repo } = setup({
+    fetchImpl: async () => new Response('denied', { status: 401 }),
+  });
+  const before = repo.actions.length;
+  const res = await request(app)
+    .get(`/api/v1/admin/providers/${repo.complete.id}/ktp`)
+    .set('Authorization', bearer(admin));
+  assert.equal(res.status, 503);
+  assert.equal(res.body.error.code, 'SERVICE_UNAVAILABLE');
+  assert.ok(!JSON.stringify(res.body).includes('res.cloudinary.com'));
+  assert.equal(repo.actions.length, before);
 });
 
 test('moderasi ulasan: sembunyikan wajib alasan, tampilkan lagi, status sama 409', async () => {

@@ -435,18 +435,32 @@ function createAdminRouter({ admin, users, cloudinary }) {
     }
   });
 
-  // GET /admin/providers/:id/ktp: URL bertanda tangan foto KTP mitra untuk verifikasi.
-  // Setiap akses dicatat `view_provider_ktp` di jejak audit.
+  // GET /admin/providers/:id/ktp: isi foto KTP mitra untuk verifikasi, dialirkan lewat
+  // backend (URL Cloudinary berlaku permanen, jadi tidak pernah dikirim ke klien).
+  // Setiap penayangan dicatat `view_provider_ktp` di jejak audit.
   router.get('/providers/:id/ktp', async (req, res) => {
     const profile = await load(admin.findProviderProfile, req.params.id, 'Penyedia jasa');
     if (!profile.ktp_public_id) {
       throw new ApiError(404, 'NOT_FOUND', 'Penyedia jasa ini belum mengunggah foto KTP.');
     }
-    const url = cloudinary.authenticatedUrl(profile.ktp_public_id);
-    if (!url)
+    if (!cloudinary.configured)
       throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Penyimpanan gambar belum diaktifkan.');
+    let image;
+    try {
+      image = await cloudinary.fetchAuthenticated(profile.ktp_public_id);
+    } catch (error) {
+      if (!env.isTest) console.error(`[cloudinary] ${error.message}`);
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Foto KTP gagal dimuat. Silakan coba lagi.');
+    }
     await admin.logKtpView({ adminId: req.auth.userId, profileId: profile.id });
-    return sendSuccess(res, { url, uploaded_at: profile.ktp_uploaded_at });
+    const contentType = image.contentType?.startsWith('image/') ? image.contentType : 'image/webp';
+    res.set({
+      'Content-Type': contentType,
+      'Cache-Control': 'no-store, private',
+      'Content-Disposition': 'inline; filename="ktp.webp"',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return res.status(200).send(image.body);
   });
 
   // PUT /admin/reviews/:id/moderate

@@ -125,6 +125,21 @@ function createCloudinary({
     return `https://res.cloudinary.com/${config.cloudName}/image/authenticated/s--${signature}--/${source}`;
   }
 
+  /**
+   * Mengambil isi gambar `authenticated` di sisi server. URL bertanda tangan berlaku
+   * permanen, jadi tidak boleh dikirim ke klien; backend yang mengalirkan isinya.
+   */
+  async function fetchAuthenticated(publicId) {
+    const url = authenticatedUrl(publicId);
+    if (!url) throw new Error('Cloudinary belum dikonfigurasi');
+    const res = await fetchImpl(url);
+    if (!res.ok) throw new Error(`ambil gambar privat Cloudinary gagal (${res.status})`);
+    return {
+      body: Buffer.from(await res.arrayBuffer()),
+      contentType: res.headers.get('content-type'),
+    };
+  }
+
   /** Menghapus gambar `authenticated` berdasarkan public_id (mis. KTP lama yang diganti). */
   async function destroyAuthenticated(publicId) {
     if (!configured || typeof publicId !== 'string' || !publicId.startsWith('djc/')) return false;
@@ -157,6 +172,7 @@ function createCloudinary({
     destroyImage,
     publicIdFromUrl,
     authenticatedUrl,
+    fetchAuthenticated,
     destroyAuthenticated,
   };
 }

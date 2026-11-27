@@ -938,7 +938,7 @@ Provider mengunggah foto KTP untuk verifikasi. Body `{ "image": "data:image/jpeg
 
 Sukses `200`: `{ "has_ktp": true, "ktp_uploaded_at": "…" }` (tanpa URL). `GET /provider/profile` juga berisi `ktp_uploaded_at`.
 
-Admin: `GET /admin/providers` berisi `has_ktp` dan `ktp_uploaded_at`; `GET /admin/providers/:id/ktp` (AD12) mengembalikan `{ url, uploaded_at }` dengan URL bertanda tangan, dan setiap akses dicatat `view_provider_ktp` di jejak audit. `PUT /admin/providers/:id/verify` dengan `verified` ditolak `400` jika KTP belum diunggah.
+Admin: `GET /admin/providers` berisi `has_ktp` dan `ktp_uploaded_at`; `GET /admin/providers/:id/ktp` (AD12) mengembalikan isi gambar (bukan URL, bukan JSON) dengan `Content-Type: image/*` dan `Cache-Control: no-store, private`; URL Cloudinary tidak pernah dikirim ke klien. Frontend memuatnya dengan `fetch` + `credentials: 'include'` (atau header `Authorization`), lalu menampilkan lewat `URL.createObjectURL(await res.blob())`. Setiap penayangan yang berhasil dicatat `view_provider_ktp` di jejak audit. Error: `404 NOT_FOUND` (belum unggah KTP), `503 SERVICE_UNAVAILABLE` (Cloudinary belum aktif atau gagal memuat). `PUT /admin/providers/:id/verify` dengan `verified` ditolak `400` jika KTP belum diunggah.
 
 ### P4 `GET /providers/:id/reviews`
 
